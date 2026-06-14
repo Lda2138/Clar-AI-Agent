@@ -1,0 +1,536 @@
+# core/agent_brain.py
+import os
+import re
+import json
+import logging
+from openai import OpenAI
+from dotenv import load_dotenv
+
+logger = logging.getLogger("signal_agent")
+
+# ── 共享正则常量 ─────────────────────────────────────────
+
+_RE_THINKING = re.compile(
+    r'(?:好的[，,]?\s*)?(?:现在\s*)?(?:让[我我们]|我来|咱们)\s*(?:再|先)?\s*(?:查|查看|调|搜|找|看|调用|了解)\s*一下[^。！？\n]*[。！？]?'
+)
+
+_RE_XML_TAGS = re.compile(
+    r"<\s*[!/]?\s*(function_calls|function_call|invoke|parameter)[^>]*>.*?<\s*/\s*(function_calls|function_call|invoke)\s*>|<\s*(function_calls|function_call|invoke|parameter)[^>]*/?>",
+    flags=re.DOTALL,
+)
+
+_RE_INVISIBLE = re.compile(r"[​-‍﻿­‎‏]")
+
+_RE_EMOJI = re.compile(
+    r"[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF"
+    r"\U0001F1E0-\U0001F1FF\U00002600-\U000027BF\U0000FE00-\U0000FE0F"
+    r"\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF"
+    r"\U00002300-\U000023FF\U00002B50\U00002764\U00002714\U00002705"
+    r"\U0000200D\U000020E3\U0000FE0F\U0001F004\U0001F0CF]", flags=re.UNICODE
+)
+
+_RE_EMPTY_XML = re.compile(r'^\s*(<[^>]*>)?\s*$')
+
+_RE_NODE = re.compile(r"\[NODE:\s*(\w+)\]")
+
+
+def _load_dotenv():
+    env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+    load_dotenv(env_path)
+
+
+# ── 工具函数（供 AI 调用） ──────────────────────────────
+
+def _get_knowledge_node(node_id):
+    from data.signal_knowledge_base import RANDOM_SIGNAL_KB
+    node = RANDOM_SIGNAL_KB["knowledge_nodes"].get(node_id)
+    if not node:
+        return json.dumps({"error": f"未找到节点 {node_id}"}, ensure_ascii=False)
+    result = {
+        "title": node["title"],
+        "chapter": node["chapter"],
+        "core_concept": node["core_concept"],
+        "engineering_meaning": node["engineering_meaning"],
+    }
+    kb = RANDOM_SIGNAL_KB
+    for f_id in node.get("related_formulas", []):
+        f = kb["formulas"].get(f_id)
+        if f:
+            result.setdefault("formulas", []).append(f)
+    for e_id in node.get("related_errors", []):
+        e = kb["error_warnings"].get(e_id)
+        if e:
+            result.setdefault("error_warnings", []).append(e)
+    for c_id in node.get("related_cases", []):
+        c = kb["problem_cases"].get(c_id)
+        if c:
+            result.setdefault("problem_cases", []).append(c)
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+def _get_glossary(term):
+    from data.signal_knowledge_base import RANDOM_SIGNAL_KB
+    matches = []
+    for g in RANDOM_SIGNAL_KB["glossary"]:
+        if term.lower() in g["symbol"].lower() or term.lower() in g["name"].lower():
+            matches.append(g)
+    if matches:
+        return json.dumps(matches, ensure_ascii=False, indent=2)
+    return json.dumps({"message": f"未找到术语 {term}"}, ensure_ascii=False)
+
+
+def _get_problem_case(case_id):
+    from data.signal_knowledge_base import RANDOM_SIGNAL_KB
+    case = RANDOM_SIGNAL_KB["problem_cases"].get(case_id)
+    if not case:
+        for cid, c in RANDOM_SIGNAL_KB["problem_cases"].items():
+            if case_id.lower() in c["type_name"].lower():
+                case = c
+                break
+    if not case:
+        return json.dumps({"message": f"未找到题型 {case_id}"}, ensure_ascii=False)
+    return json.dumps(case, ensure_ascii=False, indent=2)
+
+
+def _get_error_warning(err_id):
+    from data.signal_knowledge_base import RANDOM_SIGNAL_KB
+    err = RANDOM_SIGNAL_KB["error_warnings"].get(err_id)
+    if not err:
+        return json.dumps({"message": f"未找到错因 {err_id}"}, ensure_ascii=False)
+    return json.dumps(err, ensure_ascii=False, indent=2)
+
+
+def _get_current_signal(signal_context):
+    if not signal_context or not signal_context.get("generated"):
+        return json.dumps({"message": "尚未生成信号，请引导用户先设置参数并点击「应用参数」。"}, ensure_ascii=False)
+    feats = signal_context.get("features", {})
+    return json.dumps({
+        "signal_type": signal_context.get("signal_type"),
+        "frequency_hz": signal_context.get("freq"),
+        "snr_db": signal_context.get("snr_db"),
+        "sample_rate": signal_context.get("fs"),
+        "features": {
+            "mean": feats.get("mean"),
+            "variance": feats.get("variance"),
+            "std": feats.get("std"),
+            "rms": feats.get("rms"),
+        }
+    }, ensure_ascii=False)
+
+
+# ── 工具调度映射 ──────────────────────────────────────
+
+_TOOL_DISPATCH = {
+    "get_knowledge_node": lambda args, ctx: _get_knowledge_node(args.get("node_id", "")),
+    "get_glossary":        lambda args, ctx: _get_glossary(args.get("term", "")),
+    "get_problem_case":    lambda args, ctx: _get_problem_case(args.get("case_id", "")),
+    "get_error_warning":   lambda args, ctx: _get_error_warning(args.get("err_id", "")),
+    "get_current_signal":  lambda args, ctx: _get_current_signal(ctx),
+}
+
+
+def _clean_reply(text):
+    """统一清洗回复文本：去除工具调用痕迹、思考文本、零宽字符、表情符号"""
+    if not text:
+        return ""
+    text = _RE_XML_TAGS.sub("", text)
+    text = _RE_THINKING.sub("", text)
+    text = _RE_INVISIBLE.sub("", text)
+    text = _RE_EMOJI.sub("", text)
+    return text.strip()
+
+
+# ── Tool definitions ────────────────────────────────────
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_knowledge_node",
+            "description": "获取指定知识节点的完整内容（核心概念、工程意义、关联公式、常见误区）。解释概念时务必调用此工具确保内容准确。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "node_id": {"type": "string", "description": "知识节点 ID: KP_CH1_01(广义平稳), KP_CH1_02(维纳-欣钦), KP_CH2_01(白噪声通过线性系统)"}
+                },
+                "required": ["node_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_glossary",
+            "description": "查询术语符号表的定义，如 X(t)、m_X(t)、R_X(t1,t2)、G_X(ω)、WSS 等。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "term": {"type": "string", "description": "术语符号或名称"}
+                },
+                "required": ["term"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_problem_case",
+            "description": "获取例题/题型卡片，包含题目、解题思路和数学推导步骤。当学生问例题或想练习时调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "case_id": {"type": "string", "description": "题型ID(如 CASE_CH1_01)或题型名称关键词(如'自相关函数'、'功率谱密度')"}
+                },
+                "required": ["case_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_error_warning",
+            "description": "获取常见误区/避坑指南。当学生可能犯错或需要提醒易混淆概念时调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "err_id": {"type": "string", "description": "错因 ID，如 ERR_CH1_01(平稳混淆), ERR_CH2_01(积分破坏平稳)"}
+                },
+                "required": ["err_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_current_signal",
+            "description": "获取当前已生成信号的参数和统计特征。当用户询问当前信号状态或要求分析信号时调用。",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    }
+]
+
+
+def _build_system_prompt(signal_context, knowledge_context=None):
+    """动态构造系统提示，包含完整知识库索引和当前信号上下文"""
+    from data.signal_knowledge_base import RANDOM_SIGNAL_KB
+
+    kb = RANDOM_SIGNAL_KB
+    nodes = kb["knowledge_nodes"]
+    node_list = "\n".join(
+        f"- {nid}: {info['title']}（{info['chapter']}）— {info['core_concept'][:60]}..."
+        for nid, info in nodes.items()
+    )
+
+    glossary_list = "\n".join(
+        f"- {g['symbol']}: {g['name']} — {g['description']}" for g in kb["glossary"]
+    )
+
+    cases = kb["problem_cases"]
+    case_list = "\n".join(
+        f"- {cid}: {c['type_name']}" for cid, c in cases.items()
+    )
+
+    errors = kb["error_warnings"]
+    error_list = "\n".join(
+        f"- {eid}: {e['symptom']}" for eid, e in errors.items()
+    )
+
+    formulas = kb["formulas"]
+    formula_list = "\n".join(
+        f"- {fid}: {f['name']}" for fid, f in formulas.items()
+    )
+
+    latex_example = "$G_X(\\omega) = \\int R_X(\\tau) e^{-j\\omega\\tau} d\\tau$"
+
+    signal_block = ""
+    if signal_context and signal_context.get("generated"):
+        feats = signal_context.get("features", {})
+        signal_block = f"""
+## 当前信号状态
+用户已生成信号：
+- 类型: {signal_context.get('signal_type', '?')}
+- 频率: {signal_context.get('freq', '?')} Hz, SNR: {signal_context.get('snr_db', '?')} dB, Fs: {signal_context.get('fs', '?')} Hz
+- 统计特征: 均值={feats.get('mean', '?')}, 方差={feats.get('variance', '?')}, RMS={feats.get('rms', '?')}
+你可以基于这些数据分析信号特征。"""
+
+    knowledge_block = ""
+    if knowledge_context and knowledge_context.get("current_node_id"):
+        node_id = knowledge_context["current_node_id"]
+        node = nodes.get(node_id)
+        if node:
+            knowledge_block = f"""
+## 当前知识上下文
+用户正在查看知识卡片「{node['title']}」（{node['chapter']}）。
+- 核心概念: {node['core_concept']}
+- 工程意义: {node['engineering_meaning']}
+用户的追问是基于这个知识点的，请围绕这个知识点回答，把问题放在该知识点的语境中解释。
+如果用户问的是"追问按钮"中的问题，这些问题是生成给你直接回答的——直接回答即可，不要再反问用户。
+"""
+
+    return f"""你是《随机信号分析》课程 AI 助教。你需要自行决定查阅知识库的哪些部分，主动关联知识点，帮助学生真正理解随机信号处理。
+
+## 知识库总览
+
+### 知识点卡片（可调用 get_knowledge_node 查阅详情）
+{node_list}
+
+### 公式库（知识节点内关联了对应公式）
+{formula_list}
+
+### 例题/题型（可调用 get_problem_case 查阅）
+{case_list}
+
+### 常见误区/避坑指南（可调用 get_error_warning 查阅）
+{error_list}
+
+### 术语符号表（可调用 get_glossary 查阅）
+{glossary_list}
+{signal_block}{knowledge_block}
+
+## 工具调用规则
+你必须主动调用工具获取准确信息，不要凭记忆编造：
+1. 解释概念 → `get_knowledge_node(节点ID)`
+2. 遇到术语/符号 → `get_glossary(术语名)`
+3. 举例/讲题 → `get_problem_case(题型ID或关键词)`
+4. 提醒易错点 → `get_error_warning(错因ID)`
+5. 分析当前信号 → `get_current_signal()`
+
+## 回复要求
+1. 用中文回答，公式用 LaTeX（如 {latex_example}），行内公式用单个 $ 包裹，独立公式用双 $$ 包裹
+2. 结合工程意义解释，举实际例子
+3. **必须**在回复末尾单独一行输出 `[NODE:节点ID]` 关联到知识卡片，让前端跳转。选择与回答内容最相关的节点
+4. 主动指出常见误区，使用避坑指南中的内容
+5. 语气专业但不枯燥，像一位耐心的助教
+6. **严禁**在回复中输出函数调用过程，禁止出现"让我查一下"、"调用"、函数名等任何工具调用相关的文字，调用工具后直接给出结果即可，仿佛你本来就掌握这些知识
+7. 公式内**不要使用**零宽空格或换行，保持 LaTeX 在一行内
+8. **不要使用任何 Emoji 表情符号**（如✅、⚠️、📊等），用纯文字表达"""
+
+
+class SignalAgent:
+    def __init__(self):
+        _load_dotenv()
+        api_key = os.getenv("DEEPSEEK_API_KEY")
+        if not api_key or api_key == "your_deepseek_api_key_here":
+            raise ValueError("请在 .env 文件中设置有效的 DEEPSEEK_API_KEY")
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.deepseek.com",
+        )
+
+    def _execute_tool(self, name, args, signal_context):
+        handler = _TOOL_DISPATCH.get(name)
+        if not handler:
+            logger.warning("未知工具调用: %s", name)
+            return json.dumps({"error": f"未知工具: {name}"}, ensure_ascii=False)
+        return handler(args, signal_context)
+
+    def chat(self, user_message, chat_history, signal_context=None, knowledge_context=None):
+        """
+        调用 DeepSeek API 进行对话（支持工具调用）。
+        返回: (reply_text, node_id)
+        """
+        system_prompt = _build_system_prompt(signal_context, knowledge_context)
+        messages = [{"role": "system", "content": system_prompt}]
+        for msg in chat_history[-20:]:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+
+        try:
+            # 第一轮：AI 自主决定是否调用工具
+            response = self.client.chat.completions.create(
+                model="deepseek-chat",
+                messages=messages,
+                tools=TOOLS,
+                temperature=0.7,
+                max_tokens=2048,
+            )
+            msg = response.choices[0].message
+
+            # 如果 AI 决定调用工具，执行并将结果传回
+            if msg.tool_calls:
+                clean_content = _clean_reply(msg.content or "")
+                if _RE_EMPTY_XML.match(clean_content):
+                    clean_content = ""
+
+                messages.append({
+                    "role": "assistant",
+                    "content": clean_content,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            }
+                        }
+                        for tc in msg.tool_calls
+                    ]
+                })
+
+                for tc in msg.tool_calls:
+                    try:
+                        fn_args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                    except json.JSONDecodeError:
+                        logger.warning("工具参数 JSON 解析失败: %s", tc.function.arguments)
+                        fn_args = {}
+                    result = self._execute_tool(tc.function.name, fn_args, signal_context)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result,
+                    })
+
+                # 第二轮：AI 基于工具结果生成最终回复
+                response2 = self.client.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=2048,
+                )
+                reply = response2.choices[0].message.content
+            else:
+                reply = msg.content
+
+        except Exception as e:
+            logger.exception("AI 服务调用失败")
+            reply = f"抱歉，AI 服务暂时不可用：{e}"
+
+        if reply is None:
+            reply = "抱歉，我暂时无法回答这个问题。"
+
+        # 清洗回复
+        reply = _clean_reply(reply)
+
+        # 提取 [NODE:xxx] 标记
+        node_id = None
+        match = _RE_NODE.search(reply)
+        if match:
+            node_id = match.group(1)
+            reply = _RE_NODE.sub("", reply).strip()
+
+        return reply, node_id
+
+    def chat_stream(self, user_message, chat_history, signal_context=None, knowledge_context=None):
+        """
+        流式对话：有工具调用时先取数据再流式输出，无工具时直接流式。
+        Yields: (chunk_text, is_done, node_id)
+        """
+        system_prompt = _build_system_prompt(signal_context, knowledge_context)
+        messages = [{"role": "system", "content": system_prompt}]
+        for msg in chat_history[-20:]:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+
+        try:
+            # 第一轮：流式，边输出边判断是否有工具调用
+            stream = self.client.chat.completions.create(
+                model="deepseek-chat",
+                messages=messages,
+                tools=TOOLS,
+                temperature=0.7,
+                max_tokens=2048,
+                stream=True,
+                stream_options={"include_usage": True},
+            )
+        except Exception as e:
+            logger.exception("AI 流式服务调用失败")
+            yield f"抱歉，AI 服务暂时不可用：{e}", True, None
+            return
+
+        # 收集第一轮流式输出
+        collected_content = ""
+        tool_calls_data = {}  # index -> {id, name, arguments}
+        has_tool_calls = False
+
+        for chunk in stream:
+            delta = chunk.choices[0].delta
+
+            # 收集工具调用信息
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    idx = tc.index
+                    if idx not in tool_calls_data:
+                        tool_calls_data[idx] = {"id": "", "name": "", "arguments": ""}
+                    if tc.id:
+                        tool_calls_data[idx]["id"] = tc.id
+                    if tc.function:
+                        if tc.function.name:
+                            tool_calls_data[idx]["name"] = tc.function.name
+                        if tc.function.arguments:
+                            tool_calls_data[idx]["arguments"] += tc.function.arguments
+                has_tool_calls = True
+
+            # 收集文本内容
+            if delta.content:
+                collected_content += delta.content
+
+        if has_tool_calls and tool_calls_data:
+            # 执行工具调用
+            clean_content = _clean_reply(collected_content or "")
+            if _RE_EMPTY_XML.match(clean_content):
+                clean_content = ""
+
+            tc_list = []
+            for idx in sorted(tool_calls_data.keys()):
+                tc = tool_calls_data[idx]
+                tc_list.append({
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tc["name"],
+                        "arguments": tc["arguments"],
+                    }
+                })
+
+            messages.append({
+                "role": "assistant",
+                "content": clean_content,
+                "tool_calls": tc_list,
+            })
+
+            for tc in tc_list:
+                try:
+                    fn_args = json.loads(tc["function"]["arguments"]) if tc["function"]["arguments"] else {}
+                except json.JSONDecodeError:
+                    fn_args = {}
+                result = self._execute_tool(tc["function"]["name"], fn_args, signal_context)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": result,
+                })
+
+            # 第二轮：流式输出最终回复给用户
+            try:
+                stream2 = self.client.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=2048,
+                    stream=True,
+                    stream_options={"include_usage": True},
+                )
+            except Exception as e:
+                logger.exception("AI 第二轮调用失败")
+                yield f"抱歉，AI 服务暂时不可用：{e}", True, None
+                return
+
+            full_reply = ""
+            for chunk in stream2:
+                if chunk.choices[0].delta.content:
+                    full_reply += chunk.choices[0].delta.content
+                    yield chunk.choices[0].delta.content, False, None
+        else:
+            # 无工具调用，将收集的内容逐块输出
+            full_reply = collected_content
+            chunk_size = max(1, len(full_reply) // 20) if full_reply else 1
+            for i in range(0, len(full_reply), chunk_size):
+                yield full_reply[i:i + chunk_size], False, None
+
+        # 清洗并提取节点
+        cleaned = _clean_reply(full_reply)
+        node_id = None
+        match = _RE_NODE.search(cleaned)
+        if match:
+            node_id = match.group(1)
+
+        yield "", True, node_id

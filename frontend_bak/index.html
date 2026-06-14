@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>随机信号分析 AI 助教 Clar</title>
+<script src="https://cdn.bootcdn.net/ajax/libs/plotly.js/2.32.0/plotly.min.js"></script>
+<script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
+<link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script src="https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script src="https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+<script src="https://cdn.bootcdn.net/ajax/libs/marked/12.0.0/marked.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════
+   RESET & LIQUID GLASSMORPHISM ULTRA DESIGN
+   ═══════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+.katex-display { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
+.katex { font-size: 1.15em; }
+
+:root {
+    --text: #1e293b;
+    --text-muted: #64748b;
+    --accent: #4f46e5;
+    --accent-hover: #4338ca;
+    --glass-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.38) 0%, rgba(240, 245, 255, 0.18) 100%);
+    --glass-blur: blur(25px) saturate(200%);
+    --glass-border: 1px solid rgba(255, 255, 255, 0.55);
+    --glass-shadow: 0 16px 48px 0 rgba(31, 38, 135, 0.08),
+                    inset 0 1px 2px rgba(255, 255, 255, 0.5),
+                    inset 0 -1px 2px rgba(0, 0, 0, 0.02);
+}
+
+body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 14.5px;
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    padding: 16px;
+    gap: 16px;
+    background: linear-gradient(135deg, #f5f7fa 0%, #e4e8f0 50%, #cbe0f5 100%);
+    position: relative;
+}
+
+/* Premium Liquid Glassmorphism Background Blobs */
+.glass-blob {
+    position: fixed;
+    filter: blur(80px);
+    z-index: -2;
+    opacity: 0.8;
+    pointer-events: none;
+    will-change: transform, border-radius;
+}
+.blob-1 {
+    width: 550px;
+    height: 550px;
+    background: linear-gradient(135deg, rgba(79, 70, 229, 0.8) 0%, rgba(124, 58, 237, 0.4) 100%);
+    top: -10%;
+    left: -10%;
+    animation: liquid-1 25s infinite alternate ease-in-out;
+}
+.blob-2 {
+    width: 650px;
+    height: 650px;
+    background: linear-gradient(135deg, rgba(236, 72, 153, 0.7) 0%, rgba(244, 63, 94, 0.3) 100%);
+    bottom: -15%;
+    right: -10%;
+    animation: liquid-2 30s infinite alternate ease-in-out;
+    animation-delay: -5s;
+}
+.blob-3 {
+    width: 480px;
+    height: 480px;
+    background: linear-gradient(135deg, rgba(6, 182, 212, 0.75) 0%, rgba(13, 148, 136, 0.3) 100%);
+    top: 25%;
+    left: 30%;
+    animation: liquid-3 20s infinite alternate ease-in-out;
+    animation-delay: -10s;
+}
+.blob-4 {
+    width: 420px;
+    height: 420px;
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.6) 0%, rgba(225, 29, 72, 0.25) 100%);
+    bottom: 20%;
+    left: -5%;
+    animation: liquid-4 22s infinite alternate ease-in-out;
+    animation-delay: -3s;
+}
+
+@keyframes liquid-1 {
+    0% { transform: translate(0, 0) scale(1) rotate(0deg); border-radius: 40% 60% 60% 40% / 40% 40% 60% 60%; }
+    33% { transform: translate(50px, 70px) scale(1.1) rotate(120deg); border-radius: 60% 40% 50% 50% / 50% 60% 40% 50%; }
+    66% { transform: translate(-30px, 40px) scale(0.95) rotate(240deg); border-radius: 50% 50% 60% 40% / 40% 50% 50% 60%; }
+    100% { transform: translate(0, 0) scale(1) rotate(360deg); border-radius: 40% 60% 60% 40% / 40% 40% 60% 60%; }
+}
+@keyframes liquid-2 {
+    0% { transform: translate(0, 0) scale(1) rotate(0deg); border-radius: 50% 50% 40% 60% / 50% 40% 60% 50%; }
+    50% { transform: translate(-80px, -60px) scale(1.15) rotate(-180deg); border-radius: 40% 60% 60% 40% / 60% 50% 50% 40%; }
+    100% { transform: translate(0, 0) scale(1) rotate(-360deg); border-radius: 50% 50% 40% 60% / 50% 40% 60% 50%; }
+}
+@keyframes liquid-3 {
+    0% { transform: translate(0, 0) scale(1) rotate(0deg); border-radius: 60% 40% 50% 50% / 45% 45% 55% 55%; }
+    50% { transform: translate(60px, -50px) scale(0.9) rotate(180deg); border-radius: 45% 55% 40% 60% / 55% 45% 55% 45%; }
+    100% { transform: translate(0, 0) scale(1) rotate(360deg); border-radius: 60% 40% 50% 50% / 45% 45% 55% 55%; }
+}
+@keyframes liquid-4 {
+    0% { transform: translate(0, 0) scale(1) rotate(0deg); border-radius: 45% 55% 60% 40% / 50% 50% 50% 50%; }
+    50% { transform: translate(-50px, 60px) scale(1.1) rotate(-180deg); border-radius: 55% 45% 40% 60% / 60% 40% 60% 40%; }
+    100% { transform: translate(0, 0) scale(1) rotate(-360deg); border-radius: 45% 55% 60% 40% / 50% 50% 50% 50%; }
+}
+
+#main-row { display: flex; flex-direction: row; flex: 1; min-height: 0; }
+
+#main-workspace {
+    flex: 1; min-width: 0;
+    background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+    border: var(--glass-border); border-radius: 24px; box-shadow: var(--glass-shadow);
+    display: flex; flex-direction: column; position: relative; overflow: hidden;
+}
+
+#knowledge-slot {
+    width: 0; opacity: 0; padding: 0; margin-left: 0; overflow: hidden;
+    transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+    background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+    border-radius: 24px; box-shadow: var(--glass-shadow); display: flex; flex-direction: column;
+}
+#knowledge-slot.active { width: 340px; opacity: 1; padding: 18px; margin-left: 16px; border: var(--glass-border); overflow: visible; }
+#cards-wrapper {
+    flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
+    padding: 16px 24px;
+}
+
+/* AI 助教面板极致悬浮渐变特效 - 彻底去除内部横线与渐变块 */
+#ai-panel {
+    width: 360px; margin-left: 16px; flex-shrink: 0;
+    background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+    border: var(--glass-border); border-radius: 24px; box-shadow: var(--glass-shadow);
+    display: flex; flex-direction: column; position: relative; overflow: visible;
+}
+#ai-panel > .ai-header {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    padding: 18px 20px 24px; font-size: 15px; font-weight: 700; color: #1e293b;
+    z-index: 10;
+    background: transparent;
+    border-bottom: none !important;
+}
+#ai-panel > .ai-header::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: -1;
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0) 100%);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border-top-left-radius: 24px;
+    border-top-right-radius: 24px;
+    mask-image: linear-gradient(to bottom, black 30%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 30%, transparent 100%);
+    pointer-events: none;
+}
+#knowledge-slot > .ai-header {
+    padding: 0 0 12px 4px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #1e293b;
+    background: transparent;
+    border-bottom: none !important;
+}
+.chat-input-wrap {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 16px 20px 20px;
+    z-index: 10;
+    background: transparent;
+    border-top: none !important;
+}
+.chat-input-wrap::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: -1;
+    background: linear-gradient(to top, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0) 100%);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border-bottom-left-radius: 24px;
+    border-bottom-right-radius: 24px;
+    mask-image: linear-gradient(to top, black 30%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to top, black 30%, transparent 100%);
+    pointer-events: none;
+}
+.chat-container {
+    position: absolute;
+    top: 0; bottom: 0; left: 0; right: 0;
+    overflow-y: auto; padding: 72px 28px 96px;
+    display: flex; flex-direction: column; gap: 16px; z-index: 1;
+}
+
+#bottom-bar {
+    height: 68px; flex-shrink: 0;
+    background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+    border: var(--glass-border); border-radius: 24px; box-shadow: var(--glass-shadow);
+    display: flex; align-items: center; justify-content: space-between; padding: 0 20px;
+}
+
+.content-area { flex: 1; overflow: hidden; position: relative; }
+.page { display: none; padding: 22px 26px; height: 100%; }
+.page.active { display: flex; flex-direction: column; animation: pageScaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+#page-toolbox {
+    overflow-y: auto;
+    margin: 12px 10px 12px 0;
+    height: calc(100% - 24px);
+}
+
+@keyframes pageScaleIn {
+    from { opacity: 0; transform: translateY(12px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.page h2 { font-size: 22px; color: #0f172a; font-weight: 700; margin-bottom: 2px; }
+.page .subtitle { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
+
+/* 统一悬浮玻璃卡片风格 */
+.card {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.18) 100%) padding-box,
+                linear-gradient(135deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.05) 100%) border-box;
+    border: 1px solid transparent;
+    border-radius: 18px; padding: 16px; margin-bottom: 12px;
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.06),
+                0 16px 40px -15px rgba(31, 38, 135, 0.06),
+                inset 0 1px 2px rgba(255, 255, 255, 0.45);
+    backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 20px 40px -10px rgba(31, 38, 135, 0.15),
+                0 12px 48px -5px rgba(31, 38, 135, 0.08),
+                inset 0 1px 2px rgba(255, 255, 255, 0.6);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.48) 0%, rgba(255, 255, 255, 0.25) 100%) padding-box,
+                linear-gradient(135deg, rgba(255, 255, 255, 0.75) 0%, rgba(255, 255, 255, 0.2) 100%) border-box;
+    z-index: 10;
+}
+.card-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: #1e293b; }
+.chart-card { flex: 1; min-height: 0; display: flex; flex-direction: column; min-width: 0; }
+#waveform-plot, #spectrum-plot, #filter-plot { flex: 1; width: 100%; min-height: 0; }
+#knowledge-graph {
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent),
+                linear-gradient(to bottom, transparent, black 40px, black calc(100% - 40px), transparent);
+    mask-composite: intersect;
+    -webkit-mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent),
+                        linear-gradient(to bottom, transparent, black 40px, black calc(100% - 40px), transparent);
+    -webkit-mask-composite: destination-in;
+}
+
+.metrics-row { display: flex; gap: 10px; margin-bottom: 12px; }
+.metric {
+    flex: 1; text-align: center;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0.25) 100%);
+    padding: 10px 14px; border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.02), inset 0 1px 1px rgba(255, 255, 255, 0.4);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.metric:hover {
+    transform: translateY(-3px);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.4) 100%);
+    border-color: rgba(255, 255, 255, 0.7);
+    box-shadow: 0 8px 24px rgba(31, 38, 135, 0.08), inset 0 1px 1px rgba(255, 255, 255, 0.6);
+}
+.metric .val { font-size: 18px; font-weight: 700; color: #4f46e5; }
+.metric .lbl { font-size: 11px; color: #64748b; font-weight: 600; }
+
+.nav-tabs { display: flex; gap: 8px; }
+.tab-item {
+    padding: 10px 20px; border: 1px solid transparent; background: transparent; cursor: pointer;
+    font-size: 13px; color: #64748b; border-radius: 20px; font-weight: 600;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.tab-item.active {
+    background: linear-gradient(135deg, rgba(79, 70, 229, 0.15) 0%, rgba(79, 70, 229, 0.05) 100%);
+    border-color: rgba(79, 70, 229, 0.25); color: #4f46e5;
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.05);
+    transform: translateY(-1px);
+}
+.tab-item:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.35); border-color: rgba(255, 255, 255, 0.45); color: #1e293b;
+    transform: translateY(-1px);
+}
+.tab-item:active {
+    transform: scale(0.96);
+}
+
+/* 信号参数超薄文字控制台 - 统一毛玻璃风格 */
+.signal-controls { display: flex; align-items: center; gap: 10px; }
+.ctrl-item {
+    display: flex; align-items: center;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0.25) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 12px; padding: 6px 12px;
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4), 0 4px 12px rgba(0, 0, 0, 0.01);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.ctrl-item:focus-within {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.75) 0%, rgba(255, 255, 255, 0.55) 100%);
+    border-color: rgba(79, 70, 229, 0.5);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.6), 0 8px 24px rgba(79, 70, 229, 0.12);
+    transform: translateY(-1px);
+}
+.ctrl-item label { font-size: 12px; color: #475569; margin-right: 8px; font-weight: 600; white-space: nowrap; }
+.ctrl-item input, .ctrl-item select {
+    border: none; background: transparent; outline: none; font-size: 13px; color: #1e293b; width: 75px; font-weight: 500;
+}
+.ctrl-item select { width: 110px; cursor: pointer; }
+
+/* Custom Glassmorphism Dropdown Select */
+.custom-select-wrapper {
+    position: relative;
+    cursor: pointer;
+    user-select: none;
+}
+
+.custom-select-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 110px;
+    font-size: 13px;
+    color: #1e293b;
+    font-weight: 500;
+    gap: 6px;
+}
+
+.custom-select-arrow {
+    font-size: 9px;
+    color: var(--text-muted);
+    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.custom-select-wrapper.open .custom-select-arrow {
+    transform: rotate(180deg);
+}
+
+.custom-select-options {
+    position: absolute;
+    bottom: calc(100% + 12px); /* Open upwards since it is in the bottom bar */
+    left: -12px;
+    right: -12px;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.75) 0%, rgba(255, 255, 255, 0.55) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    border-radius: 16px;
+    box-shadow: 0 12px 32px rgba(31, 38, 135, 0.15);
+    backdrop-filter: blur(25px) saturate(180%);
+    -webkit-backdrop-filter: blur(25px) saturate(180%);
+    opacity: 0;
+    transform: translateY(10px) scale(0.95);
+    pointer-events: none;
+    z-index: 100;
+    overflow: hidden;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    transition: opacity 0.25s cubic-bezier(0.25, 0.8, 0.25, 1),
+                transform 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.custom-select-wrapper.open .custom-select-options {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+}
+
+.custom-option {
+    padding: 8px 12px;
+    font-size: 12.5px;
+    color: #475569;
+    border-radius: 10px;
+    transition: all 0.2s ease;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.custom-option:hover {
+    background: linear-gradient(135deg, rgba(79, 70, 229, 0.12) 0%, rgba(79, 70, 229, 0.04) 100%);
+    color: #4f46e5;
+}
+
+.custom-option.active {
+    background: linear-gradient(135deg, rgba(79, 70, 229, 0.85) 0%, rgba(59, 130, 246, 0.85) 100%);
+    color: #fff;
+}
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; }
+
+.btn-apply {
+    padding: 10px 20px; border-radius: 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+    background: linear-gradient(135deg, rgba(79, 70, 229, 0.85), rgba(59, 130, 246, 0.85));
+    color: #fff; border: 1px solid rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 14px rgba(79, 70, 229, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.3);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.btn-apply:hover {
+    background: linear-gradient(135deg, rgba(79, 70, 229, 0.95), rgba(59, 130, 246, 0.95));
+    box-shadow: 0 8px 24px rgba(79, 70, 229, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.55);
+    transform: translateY(-2px) scale(1.02);
+}
+.btn-apply:active {
+    transform: translateY(0) scale(0.98);
+}
+
+/* 知识库卡片 - 统一毛玻璃与浮动效果 */
+.kc-card {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.2) 100%) padding-box,
+                linear-gradient(135deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.05) 100%) border-box;
+    border: 1px solid transparent;
+    border-radius: 18px; padding: 16px;
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.06),
+                0 16px 40px -15px rgba(31, 38, 135, 0.06),
+                inset 0 1px 2px rgba(255, 255, 255, 0.45);
+    backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+    position: relative;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.kc-card:hover {
+    transform: translateY(-6px) scale(1.015);
+    box-shadow: 0 20px 40px -10px rgba(31, 38, 135, 0.15),
+                0 12px 48px -5px rgba(31, 38, 135, 0.08),
+                inset 0 1px 2px rgba(255, 255, 255, 0.6);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.28) 100%) padding-box,
+                linear-gradient(135deg, rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0.2) 100%) border-box;
+    z-index: 10;
+}
+.kc-card h4 { font-size: 15px; color: #0f172a; margin-bottom: 8px; font-weight: 700; }
+.kc-card--secondary::before { content: ''; position: absolute; left: 0; top: 15%; height: 70%; width: 4px; background: #4f46e5; border-radius: 0 4px 4px 0; }
+.kc-card--primary::before { content: ''; position: absolute; left: 0; top: 15%; height: 70%; width: 4px; background: #f59e0b; border-radius: 0 4px 4px 0; }
+.kc-card--primary { opacity: 0.95; }
+.ai-insight { background: rgba(79, 70, 229, 0.06); border-radius: 12px; padding: 14px; margin-top: 12px; border: 1px solid rgba(79, 70, 229, 0.1); }
+
+.quick-qs { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.quick-ask-btn {
+    text-align: left; padding: 10px 14px; border-radius: 12px; font-size: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0.2) 100%);
+    color: #475569; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02), inset 0 1px 1px rgba(255, 255, 255, 0.4);
+    backdrop-filter: blur(5px);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.quick-ask-btn:hover {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.75) 0%, rgba(255, 255, 255, 0.55) 100%);
+    color: #4f46e5; border-color: rgba(79, 70, 229, 0.3);
+    box-shadow: 0 6px 16px rgba(79, 70, 229, 0.12);
+    transform: translateY(-2px);
+}
+
+.chat-msg {
+    display: flex; gap: 10px;
+    animation: msgIn 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    position: relative;
+    transition: opacity 0.3s, transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+@keyframes msgIn { from { opacity: 0; transform: translateY(16px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.chat-msg:hover {
+    transform: translateY(-2px);
+    z-index: 10;
+}
+.chat-msg.user { flex-direction: row-reverse; }
+
+.avatar { display: none; }
+
+/* 统一聊天气泡为精致的毛玻璃悬浮造型 */
+.bubble {
+    flex: 1; min-width: 0; max-width: 100%; padding: 12px 18px; border-radius: 16px; font-size: 14px; line-height: 1.65; word-wrap: break-word;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.02);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.chat-msg.assistant .bubble {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0.25) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    border-left: 4px solid #4f46e5;
+    color: #1e293b;
+    backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+    border-radius: 4px 18px 18px 18px;
+}
+.chat-msg.assistant:hover .bubble {
+    box-shadow: 0 12px 32px rgba(31, 38, 135, 0.12), inset 0 1px 2px rgba(255, 255, 255, 0.6);
+    border-color: rgba(79, 70, 229, 0.35);
+}
+.chat-msg.user .bubble {
+    background: linear-gradient(135deg, rgba(79, 70, 229, 0.18) 0%, rgba(79, 70, 229, 0.08) 100%);
+    border: 1px solid rgba(79, 70, 229, 0.22);
+    border-right: 4px solid #4f46e5;
+    color: #1e293b;
+    backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+    border-radius: 18px 4px 18px 18px;
+}
+.chat-msg.user:hover .bubble {
+    box-shadow: 0 12px 32px rgba(79, 70, 229, 0.15), inset 0 1px 2px rgba(255, 255, 255, 0.4);
+    border-color: rgba(79, 70, 229, 0.35);
+}
+
+.markdown-body { font-family: inherit; color: #1e293b; font-size: 14px; line-height: 1.7; }
+.markdown-body p { margin-bottom: 8px; line-height: 1.65; }
+.markdown-body p:last-child { margin-bottom: 0; }
+.markdown-body li p, .markdown-body blockquote p, .markdown-body td p, .markdown-body th p { text-indent: 0; }
+.markdown-body ul, .markdown-body ol { padding-left: 22px; margin: 8px 0 12px; }
+.markdown-body li { margin-bottom: 6px; padding-left: 2px; }
+.markdown-body li:last-child { margin-bottom: 0; }
+.markdown-body h3 { font-size: 15px; font-weight: 700; margin: 12px 0 6px; color: #0f172a; }
+.markdown-body h4 { font-size: 14px; font-weight: 700; margin: 10px 0 4px; color: #1e293b; }
+.markdown-body pre {
+    background: rgba(255, 255, 255, 0.35); padding: 12px 14px; border-radius: 10px; overflow-x: auto; margin: 10px 0;
+    border: 1px solid rgba(255, 255, 255, 0.4); box-shadow: inset 0 1px 2px rgba(0,0,0,0.01);
+}
+.markdown-body code {
+    font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace; font-size: 0.9em;
+    background: rgba(79, 70, 229, 0.08); padding: 2px 6px; border-radius: 4px; color: #4f46e5; font-weight: 600;
+}
+.markdown-body pre code { background: none; padding: 0; color: #1e293b; font-size: 13px; font-weight: 400; }
+.markdown-body strong { color: #0f172a; font-weight: 700; }
+.markdown-body .katex { max-width: 100%; overflow-x: auto; overflow-y: hidden; vertical-align: middle; }
+.markdown-body .katex-display { text-indent: 0; margin: 12px 0; }
+.markdown-body hr { border: none; border-top: 1px solid rgba(255,255,255,0.4); margin: 10px 0; }
+.markdown-body table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; display: block; overflow-x: auto; }
+.markdown-body th, .markdown-body td { padding: 8px 12px; border: 1px solid rgba(255, 255, 255, 0.4); text-align: left; }
+.markdown-body th { background: rgba(79, 70, 229, 0.08); font-weight: 700; color: #0f172a; }
+.markdown-body tr:nth-child(even) td { background: rgba(255, 255, 255, 0.15); }
+.markdown-body blockquote {
+    border-left: 3px solid #4f46e5; padding: 8px 14px; margin: 8px 0;
+    background: rgba(79, 70, 229, 0.05); border-radius: 0 8px 8px 0; color: #475569;
+}
+
+.chat-input-wrap input {
+    width: 100%; padding: 12px 48px 12px 18px; border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.35) 100%);
+    outline: none; font-size: 14px; color: #1e293b;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.02), inset 0 1px 2px rgba(255, 255, 255, 0.5);
+    backdrop-filter: blur(10px);
+}
+.chat-input-wrap input:focus {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(255, 255, 255, 0.65) 100%);
+    border-color: rgba(79, 70, 229, 0.5);
+    box-shadow: 0 8px 24px rgba(79, 70, 229, 0.15), inset 0 1px 2px rgba(255, 255, 255, 0.6);
+}
+.send-btn {
+    position: absolute; right: 28px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px;
+    border-radius: 50%; border: none; background: linear-gradient(135deg, #4f46e5, #3b82f6); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3); transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.send-btn:hover { transform: translateY(-50%) scale(1.08); box-shadow: 0 6px 16px rgba(79, 70, 229, 0.45); }
+.send-btn:active { transform: translateY(-50%) scale(0.95); }
+
+.typing-dots { display: inline-flex; gap: 4px; align-items: center; padding: 4px 2px; }
+.typing-dots span { width: 6px; height: 6px; background: #4f46e5; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out both; }
+.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+@keyframes bounce { 0%, 80%, 100% { transform: scale(0); opacity: 0.4; } 40% { transform: scale(1); opacity: 1; } }
+
+/* Premium Glassmorphic Floating Scrollbars */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 10px;
+    margin: 72px 8px 96px; /* Top margin to clear header, bottom margin to clear input wrap */
+}
+::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(79, 70, 229, 0.25) 0%, rgba(59, 130, 246, 0.25) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(79, 70, 229, 0.45) 0%, rgba(59, 130, 246, 0.45) 100%);
+    border-color: rgba(255, 255, 255, 0.45);
+}
+::-webkit-scrollbar-thumb:active {
+    background: linear-gradient(180deg, rgba(79, 70, 229, 0.6) 0%, rgba(59, 130, 246, 0.6) 100%);
+}
+
+/* Smooth transition for scroll mask-image */
+#chat-messages, #cards-wrapper, #page-toolbox {
+    transition: mask-image 0.15s ease, -webkit-mask-image 0.15s ease;
+}
+</style>
+</head>
+<body>
+
+<!-- Liquid Glassmorphism Background Blobs -->
+<div class="glass-blob blob-1"></div>
+<div class="glass-blob blob-2"></div>
+<div class="glass-blob blob-3"></div>
+<div class="glass-blob blob-4"></div>
+
+<div id="main-row">
+    <div id="main-workspace">
+        <div class="content-area">
+            <div class="page active" id="page-signal-lab">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                    <h2>信号工坊</h2>
+                    <button class="btn-apply" id="btn-ai-analyze" style="display: none; background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 4px 12px rgba(245,158,11,0.3);" onclick="analyzeCurrentSignal()">💡 让 Clar 分析当前信号</button>
+                </div>
+                <p class="subtitle">实时数学分析。修改底部的控制面板参数可实时重绘含噪信号特性。</p>
+                <div class="metrics-row" id="signal-metrics" style="display:none;"></div>
+                <div class="card chart-card"><div class="card-title">时域波形 X(t)</div><div id="waveform-plot"></div></div>
+                <div class="card chart-card"><div class="card-title">频域特性分析 (香农-奈奎斯特带宽)</div><div id="spectrum-plot"></div></div>
+            </div>
+
+            <div class="page" id="page-knowledge-map">
+                <h2>课程知识图谱</h2>
+                <p class="subtitle">点击拓扑叶子节点触发右侧上下文卡片及追问链路演进</p>
+                <div class="card chart-card"><div id="knowledge-graph"></div></div>
+            </div>
+
+            <div class="page" id="page-toolbox">
+                <h2>信号处理扩展工坊</h2>
+                <p class="subtitle">执行随机过程通过线性时不变系统(LTI)物理变换实验</p>
+                <div class="metrics-row">
+                    <div class="card" style="flex:1; display:flex; flex-direction:column; gap:10px;">
+                        <div class="card-title">时域：滑动平均系统</div>
+                        <div class="ctrl-item">
+                            <label>窗口大小 N</label>
+                            <input type="number" id="filter-window-size" value="10" min="2" max="100">
+                        </div>
+                        <button class="btn-apply" style="width:100%" onclick="applyFilter('moving_average')">运行滑窗积分分析</button>
+                    </div>
+                    <div class="card" style="flex:1; display:flex; flex-direction:column; gap:10px;">
+                        <div class="card-title">频域：RC一阶低通系统</div>
+                        <div class="ctrl-item">
+                            <label>截止频率 (Hz)</label>
+                            <input type="number" id="filter-cutoff" value="500" min="1">
+                        </div>
+                        <button class="btn-apply" style="width:100%" onclick="applyFilter('rc_lowpass')">运行冲激响应卷积</button>
+                    </div>
+                    <div class="card" style="flex:1; display:flex; flex-direction:column; gap:10px;">
+                        <div class="card-title">频域：维纳最佳线性滤波</div>
+                        <div style="font-size:12px; color:#64748b; line-height:1.5; flex:1;">
+                            在最小均方误差(MMSE)准则下，利用已知期望信号与噪声的功率谱比率，实现自适应的最优估值滤波。
+                        </div>
+                        <button class="btn-apply" style="width:100%" onclick="applyFilter('wiener')">运行最佳均方估计</button>
+                    </div>
+                </div>
+                <div class="card chart-card" id="filter-result" style="display:none; flex-direction: column; height: 320px; min-height: 320px; margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <div class="card-title" id="filter-title" style="margin-bottom: 0;">线性系统输出特性</div>
+                        <button class="btn-apply" id="btn-filter-ai-analyze" style="padding: 4px 10px; font-size: 11px; border-radius: 8px; background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 2px 8px rgba(245,158,11,0.2);" onclick="analyzeFilterResult()">💡 让 Clar 分析滤波结果</button>
+                    </div>
+                    <div id="filter-plot" style="flex: 1; min-height: 0;"></div>
+                </div>
+
+                <div style="height: 30px;"></div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                    <h3 style="font-size:16px; font-weight:600; color:#11111f;">卡尔曼滤波状态空间估计仿真</h3>
+                    <button class="btn-apply" id="btn-kalman-ai-analyze" style="display: none; padding: 4px 10px; font-size: 11px; border-radius: 8px; background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 2px 8px rgba(245,158,11,0.2);" onclick="analyzeKalmanResult()">💡 让 Clar 分析卡尔曼仿真</button>
+                </div>
+                <p class="subtitle" style="margin-bottom:12px;">构建一个二维状态空间跟踪模型（位置与速度），通过递归卡尔曼滤波在含噪观测下实现状态估计与协方差收敛验证。</p>
+                <div class="metrics-row">
+                    <div class="card" style="flex:1; display:flex; flex-direction:column; gap:10px;">
+                        <div class="card-title">滤波与仿真参数设置</div>
+                        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:6px;">
+                            <div class="ctrl-item" style="flex:1; min-width:120px;">
+                                <label>过程噪声 q</label>
+                                <input type="number" id="kalman-q" value="0.1" placeholder="推荐: 0.1" step="0.01" min="0">
+                            </div>
+                            <div class="ctrl-item" style="flex:1; min-width:120px;">
+                                <label>测量噪声标准差 σ_v</label>
+                                <input type="number" id="kalman-r" value="1.0" placeholder="推荐: 1.0" step="0.1" min="0.01">
+                            </div>
+                            <div class="ctrl-item" style="flex:1; min-width:120px;">
+                                <label>初速度 v₀</label>
+                                <input type="number" id="kalman-v0" value="1.0" placeholder="推荐: 1.0" step="0.1">
+                            </div>
+                        </div>
+                        <button class="btn-apply" style="width:100%" onclick="runKalmanSimulation()">运行卡尔曼递归仿真</button>
+                    </div>
+                </div>
+                <div id="kalman-result" style="display:none; flex-direction:column; gap:12px; margin-bottom: 20px;">
+                    <div class="card chart-card" style="height: 280px; min-height: 280px;">
+                        <div class="card-title">位置跟踪估计 (True vs Measured vs Estimated)</div>
+                        <div id="kalman-pos-plot" style="flex:1; min-height:0;"></div>
+                    </div>
+                    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                        <div class="card chart-card" style="flex:1; min-width:300px; height: 260px; min-height: 260px;">
+                            <div class="card-title">速度估计与真实值 (True vs Estimated Velocity)</div>
+                            <div id="kalman-vel-plot" style="flex:1; min-height:0;"></div>
+                        </div>
+                        <div class="card chart-card" style="flex:1; min-width:300px; height: 260px; min-height: 260px;">
+                            <div class="card-title">误差协方差 P₁₁ 与卡尔曼增益 K₁ 收敛曲线</div>
+                            <div id="kalman-cov-plot" style="flex:1; min-height:0;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="knowledge-slot">
+        <div class="ai-header" style="padding: 0 0 10px 0; background:transparent;">衍生知识演进面板</div>
+        <div id="cards-wrapper">
+            <p style="color:#8890a8; font-size:13px; text-align:center; margin-top:30px; padding:0 10px;">未激活任何知识节点。通过右侧对话框提问或生成信号激活滑动上下文。</p>
+        </div>
+    </div>
+
+    <!-- ✨ 核心修复：极致悬浮效果面板 -->
+    <div id="ai-panel">
+        <div class="ai-header">🤖 AI 智能助教 Clar</div>
+        <div class="chat-container" id="chat-messages">
+            <div class="chat-msg assistant">
+                <div class="bubble">您好！我是《随机信号分析》AI 助教 Clar，先生成信号或直接向我提问即可开始。</div>
+            </div>
+        </div>
+        <div class="chat-input-wrap">
+            <input type="text" id="chatFloatInput" placeholder="请输入提问或公式推导..." autocomplete="off" onkeydown="if(event.key==='Enter')sendChat()">
+            <button class="send-btn" onclick="sendChat()">↑</button>
+        </div>
+    </div>
+</div>
+
+<!-- ✨ 核心修复：底栏集成无按钮纯净输入法 -->
+<footer id="bottom-bar">
+    <div class="nav-tabs">
+        <button class="tab-item active" data-page="signal-lab">📡 信号工坊</button>
+        <button class="tab-item" data-page="knowledge-map">🕸️ 知识图谱</button>
+        <button class="tab-item" data-page="toolbox">⚙️ 工具箱</button>
+    </div>
+    <div class="signal-controls">
+        <div class="ctrl-item custom-select-wrapper" id="sig-type-wrapper">
+            <label>型号</label>
+            <div class="custom-select-trigger" id="sig-type-trigger">
+                <span class="custom-select-text">正弦+白噪声</span>
+                <span class="custom-select-arrow">▼</span>
+            </div>
+            <div class="custom-select-options" id="sig-type-options">
+                <div class="custom-option active" data-value="正弦+白噪声">正弦+白噪声</div>
+                <div class="custom-option" data-value="窄带">窄带</div>
+                <div class="custom-option" data-value="瑞利分布">瑞利分布</div>
+                <div class="custom-option" data-value="方波+白噪声">方波+白噪声</div>
+                <div class="custom-option" data-value="线性调频(LFM)">线性调频(LFM)</div>
+            </div>
+            <select id="sig-type" onchange="autoGenerate()" style="display:none;">
+                <option>正弦+白噪声</option>
+                <option>窄带</option>
+                <option>瑞利分布</option>
+                <option>方波+白噪声</option>
+                <option>线性调频(LFM)</option>
+            </select>
+        </div>
+        <div class="ctrl-item">
+            <label>信噪比</label>
+            <input type="number" id="sig-snr" value="10" placeholder="如 10dB" oninput="autoGenerate()">
+        </div>
+        <div class="ctrl-item">
+            <label>频率</label>
+            <input type="number" id="sig-freq" value="200" placeholder="1~5000Hz" oninput="syncSampleRate()">
+        </div>
+        <div class="ctrl-item">
+            <label>采样率</label>
+            <input type="number" id="sig-fs" value="10000" placeholder="1000~50000Hz" oninput="validateSampleRate()">
+        </div>
+        <div class="ctrl-item" id="ctrl-bandwidth" style="display:none;">
+            <label>带宽</label>
+            <input type="number" id="sig-bandwidth" value="50" placeholder="带宽 (Hz)" oninput="autoGenerate()">
+        </div>
+        <div class="ctrl-item" id="ctrl-freq-end" style="display:none;">
+            <label>终止频率</label>
+            <input type="number" id="sig-freq-end" value="300" placeholder="扫频上限 (Hz)" oninput="autoGenerate()">
+        </div>
+        <button class="btn-apply" onclick="generateSignal()">生成与重绘</button>
+        <button class="btn-apply" style="background:transparent; color:#5c6479; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.1);" onclick="resetAll()">重置</button>
+    </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

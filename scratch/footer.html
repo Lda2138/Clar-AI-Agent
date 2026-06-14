@@ -1,0 +1,73 @@
+<footer id="bottom-bar">
+    <div class="nav-tabs" id="main-nav-tabs">
+        <div class="nav-indicator" id="nav-indicator"></div>
+        <button class="tab-item active" data-page="signal-lab" data-ai-tooltip="导航选项卡 - 信号工坊：进行随机信号的时域与频域数学分析">信号工坊</button>
+        <button class="tab-item" data-page="knowledge-map" data-ai-tooltip="导航选项卡 - 知识图谱：查看课程知识架构树与知识点关联">知识图谱</button>
+        <button class="tab-item" data-page="toolbox" data-ai-tooltip="导航选项卡 - 工具箱：进行滑动平均、一阶低通和卡尔曼状态估计实验">工具箱</button>
+        <button class="tab-item" data-page="radar-tracking" data-ai-tooltip="导航选项卡 - 雷达追踪：进行基于CFAR检测与卡尔曼多目标雷达航迹管理实验">雷达追踪</button>
+    </div>
+    <div class="signal-controls">
+        <div class="ctrl-item custom-select-wrapper" id="sig-type-wrapper" data-ai-tooltip="信号源：选择拟真信号类型（包含正弦、窄带、扫频LFM、白噪声等）">
+            <label>型号</label>
+            <div class="custom-select-trigger" id="sig-type-trigger">
+                <span class="custom-select-text">正弦+白噪声</span>
+                <span class="custom-select-arrow">▼</span>
+            </div>
+            <div class="custom-select-options" id="sig-type-options">
+                <div class="custom-option active" data-value="正弦+白噪声">正弦+白噪声</div>
+                <div class="custom-option" data-value="窄带">窄带</div>
+                <div class="custom-option" data-value="瑞利分布">瑞利分布</div>
+                        <div class="custom-option" data-value="方波+白噪声">方波+白噪声</div>
+                <div class="custom-option" data-value="线性调频(LFM)">线性调频(LFM)</div>
+                <div class="custom-option" data-value="高斯白噪声">高斯白噪声</div>
+                <div class="custom-option" data-value="一阶马尔可夫过程">一阶马尔可夫过程</div>
+                <div class="custom-option" data-value="三角波+白噪声">三角波+白噪声</div>
+                <div class="custom-option" data-value="双频正弦+白噪声">双频正弦+白噪声</div>
+            </div>
+            <select id="sig-type" onchange="autoGenerate()" style="display:none;">
+                <option>正弦+白噪声</option>
+                <option>窄带</option>
+                <option>瑞利分布</option>
+                <option>方波+白噪声</option>
+                <option>线性调频(LFM)</option>
+                <option>高斯白噪声</option>
+                <option>一阶马尔可夫过程</option>
+                <option>三角波+白噪声</option>
+                <option>双频正弦+白噪声</option>
+                <option>2FSK+白噪声</option>
+            </select>
+        </div>
+        <div class="ctrl-item" data-ai-tooltip="信号质量：配置输入观测序列的信噪比分贝(SNR dB)">
+            <label>信噪比</label>
+            <input type="number" id="sig-snr" value="10" placeholder="如 10dB" oninput="autoGenerate()">
+        </div>
+        <div class="ctrl-item" data-ai-tooltip="中心频率：正弦波/窄带/扫频起始频率 f0 (Hz)">
+            <label>频率</label>
+            <input type="number" id="sig-freq" value="200" placeholder="1~5000Hz" oninput="syncSampleRate()">
+        </div>
+        <div class="ctrl-item" data-ai-tooltip="时域采样：配置数字系统的采样率 fs (Hz)">
+            <label>采样率</label>
+            <input type="number" id="sig-fs" value="10000" placeholder="1000~50000Hz" oninput="validateSampleRate()">
+        </div>
+        <div class="ctrl-item" id="ctrl-bandwidth" style="display:none;">
+            <label>带宽</label>
+            <input type="number" id="sig-bandwidth" value="50" placeholder="带宽 (Hz)" oninput="autoGenerate()">
+        </div>
+        <div class="ctrl-item" id="ctrl-freq-end" style="display:none;">
+            <label>终止频率</label>
+            <input type="number" id="sig-freq-end" value="300" placeholder="扫频上限 (Hz)" oninput="autoGenerate()">
+        </div>
+        <div class="ctrl-item" id="ctrl-markov-a" style="display:none;">
+            <label>回归系数 a</label>
+            <input type="number" id="sig-markov-a" value="0.9" step="0.05" min="0.0" max="0.99" oninput="autoGenerate()">
+        </div>
+        <div class="ctrl-item" id="ctrl-freq2" style="display:none;">
+            <label>第二频率</label>
+            <input type="number" id="sig-freq2" value="300" placeholder="f2 (Hz)" oninput="autoGenerate()">
+        </div>
+        <button class="btn-apply" onclick="generateSignal()">生成与重绘</button>
+        <button class="btn-apply" style="background: #fff; color: #1e293b; border: 1px solid #cbd5e1; box-shadow: 0 2px 4px rgba(0,0,0,0.02);" onclick="generateEnsemble()" title="连续生成5次不同种子的随机样本，观察系综叠加现象">蒙特卡洛系综</button>
+        <button class="btn-audio" onclick="playSignalAudio()" title="试听当前信号声音">试听音频</button>
+        <button class="btn-export" onclick="exportSignalCSV()" title="导出当前信号为CSV数据">导出 CSV</button>
+    </div>
+</footer>

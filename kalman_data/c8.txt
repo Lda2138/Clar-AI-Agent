@@ -1,0 +1,299 @@
+% 课题：噪声环境下的目标检测跟踪 - 究极完全体 (无盲区动态 CMLD + Offset + 真值统计)
+clear; clc; close all;
+
+%% 1. 加载数据
+file_path = 'C:\Users\Lda001\Desktop\outstanding_plan\yw\Raw_data.mat';
+if exist(file_path, 'file')
+    loaded_data = load(file_path);
+    var_names = fieldnames(loaded_data);
+    Raw_data = loaded_data.(var_names{1});
+    disp('数据加载成功，正在启动【全图无盲区 + 综合统计】跟踪系统...');
+else
+    error('未找到数据文件，请检查路径是否正确！');
+end
+
+[num_x, num_y, num_frames] = size(Raw_data);
+[X_grid, Y_grid] = meshgrid(1:num_y, 1:num_x);
+
+%% 2. 初始化绘图窗口
+fig = figure('Name', '雷达目标跟踪与性能评估系统', 'Position', [100, 100, 1200, 500]);
+
+subplot(1, 2, 1);
+h_mesh = mesh(X_grid, Y_grid, abs(Raw_data(:,:,1)));
+title('图 1  原始数据某一帧数据平面');
+xlabel('x/m'); ylabel('y/m'); zlabel('Amplitude/dB');
+xlim([0 250]); ylim([0 250]); zlim([0 12]);
+xticks(0:50:250); yticks(0:50:250); zticks(0:2:12);
+view(45, 30); grid on;
+
+h_ax2 = subplot(1, 2, 2);
+title('图 2  目标航迹与虚警/漏警/真值累积统计');
+xlabel('x/m'); ylabel('y/m');
+xlim([0 250]); ylim([0 250]);
+xticks(0:50:250); yticks(0:50:250);
+grid off;
+box on; hold on;
+
+% 稍微加宽了文本框，以容纳四行数据
+h_stats_text = text(5, 225, '初始化中...', 'FontSize', 10, 'FontWeight', 'bold', ...
+    'BackgroundColor', [1 1 1 0.8], 'EdgeColor', 'k', 'Margin', 5);
+
+%% 3. 算法参数设置
+% --- (1) CMLD 检测参数 ---
+Pf = 1e-4;      
+R_ref = 4; R_pro = 2;
+margin = R_ref + R_pro; 
+
+drop_high_num = 10; 
+threshold_offset = 30; % 继承 ca8.txt 的设置 (如果虚警依然压不住，可大胆设为 80-100)
+
+% ★ 动态 LUT 查找表生成 (专为 CMLD 优化)
+max_N = (2*margin + 1)^2; 
+alpha_lut = zeros(1, max_N);
+for n = 1:max_N
+    n_eff = n - drop_high_num; % 剔除后剩余的有效单元数
+    if n_eff > 0
+        alpha_lut(n) = n_eff * (Pf^(-1/n_eff) - 1);
+    else
+        alpha_lut(n) = inf; % 剩余单元不足以支撑计算，设为无穷大防误报
+    end
+end
+
+% --- (2) 目标跟踪参数 ---
+T = 1;
+F = [1 T 0 0; 0 1 0 0; 0 0 1 T; 0 0 0 1];
+H = [1 0 0 0; 0 0 1 0];                   
+qs = 0.01;
+Q = qs * [T^3/3 T^2/2 0 0; T^2/2 T 0 0; 0 0 T^3/3 T^2/2; 0 0 T^2/2 T];
+R = [1 0; 0 1];                           
+gate_dist = 16; 
+amp_drop_tol = 8;
+
+tracks = struct('id', {}, 'x', {}, 'P', {}, 'status', {}, 'hits', {}, 'misses', {}, ...
+                'history', {}, 'raw_meas', {}, 'missed_pts', {}, 'amp', {});
+next_track_id = 1;
+
+confirmed_paths = {}; 
+accumulated_false_alarms = [];
+accumulated_valid_misses = [];
+
+%% 4. 核心处理循环
+for k = 1:num_frames
+    % ================= 步骤 A：全图无盲区动态 CMLD + Offset 目标检测 =================
+    set(h_mesh, 'ZData', abs(Raw_data(:,:,k)));
+    subplot(1, 2, 1); title(sprintf('图 1  原始数据某一帧数据平面 (第 %d / %d 帧)', k, num_frames));
+    
+    current_frame = abs(Raw_data(:,:,k)).^2; 
+    Z = [];
+    
+    % ★ 循环直接全图覆盖 1~250
+    for i = 1 : num_x
+        for j = 1 : num_y
+            
+            % 1. 动态确定大窗口边界
+            r_min = max(1, i - margin);
+            r_max = min(num_x, i + margin);
+            c_min = max(1, j - margin);
+            c_max = min(num_y, j + margin);
+            
+            % 2. 动态确定小窗口（保护区）边界
+            gr_min = max(1, i - R_pro);
+            gr_max = min(num_x, i + R_pro);
+            gc_min = max(1, j - R_pro);
+            gc_max = min(num_y, j + R_pro);
+            
+            % 3. 截取大窗口数据
+            window_large = current_frame(r_min:r_max, c_min:c_max);
+            
+            % 4. 动态生成局部掩膜 local_mask (挖去保护区)
+            local_mask = true(size(window_large));
+            local_gr_min = gr_min - r_min + 1;
+            local_gr_max = gr_max - r_min + 1;
+            local_gc_min = gc_min - c_min + 1;
+            local_gc_max = gc_max - c_min + 1;
+            local_mask(local_gr_min:local_gr_max, local_gc_min:local_gc_max) = false;
+            
+            % 5. 提取纯净的参考单元并排序 (CMLD核心)
+            ref_cells = window_large(local_mask); 
+            N_actual = length(ref_cells);
+            
+            if N_actual > drop_high_num
+                sorted_cells = sort(ref_cells);
+                
+                % 只对剔除最大极值后的剩余部分求平均
+                noise_mean = mean(sorted_cells(1 : end-drop_high_num));
+                
+                % 查表获取专属动态乘子，并计算最终偏置门限
+                dynamic_threshold = alpha_lut(N_actual) * noise_mean + threshold_offset;
+                
+                if current_frame(i, j) > dynamic_threshold
+                    Z = [Z; i, j, current_frame(i, j)]; 
+                end
+            end
+        end
+    end
+    
+    % ================= 步骤 B & C：带【幅度特征】的数据关联 =================
+    assigned_Z_indices = [];
+    if ~isempty(tracks)
+        for i = 1:length(tracks)
+            tracks(i).x = F * tracks(i).x;
+            tracks(i).P = F * tracks(i).P * F' + Q;
+        end
+        
+        if ~isempty(Z)
+            cost_matrix = inf(length(tracks), size(Z,1));
+            for i = 1:length(tracks)
+                S = H * tracks(i).P * H' + R;
+                invS = inv(S);
+                z_pred = H * tracks(i).x;     
+                track_amp_dB = 10 * log10(tracks(i).amp);
+                
+                for j = 1:size(Z,1)
+                    dz = Z(j, 1:2)' - z_pred;
+                    dist2 = dz' * invS * dz;  
+                    z_amp_dB = 10 * log10(Z(j, 3));
+                    
+                    if dist2 < gate_dist && (track_amp_dB - z_amp_dB) < amp_drop_tol
+                        cost_matrix(i,j) = dist2;
+                    end
+                end
+            end
+            
+            for i = 1:length(tracks)
+                [min_dist, z_idx] = min(cost_matrix(i, :));
+                if ~isinf(min_dist) && ~ismember(z_idx, assigned_Z_indices)
+                    assigned_Z_indices = [assigned_Z_indices, z_idx];
+                    z_meas = Z(z_idx, 1:2)';
+                    S = H * tracks(i).P * H' + R;
+                    K = tracks(i).P * H' / S;
+                    tracks(i).x = tracks(i).x + K * (z_meas - H * tracks(i).x);
+                    tracks(i).P = (eye(4) - K * H) * tracks(i).P;
+                    tracks(i).hits = tracks(i).hits + 1;
+                    tracks(i).misses = 0; 
+                    tracks(i).raw_meas = [tracks(i).raw_meas; z_meas(1), z_meas(2)];
+                    tracks(i).amp = 0.8 * tracks(i).amp + 0.2 * Z(z_idx, 3);
+                    if tracks(i).hits >= 3 && strcmp(tracks(i).status, 'tentative')
+                        tracks(i).status = 'confirmed';
+                    end
+                    tracks(i).history = [tracks(i).history; tracks(i).x(1), tracks(i).x(3)];
+                else
+                    tracks(i).misses = tracks(i).misses + 1;
+                    tracks(i).history = [tracks(i).history; tracks(i).x(1), tracks(i).x(3)]; 
+                    if strcmp(tracks(i).status, 'confirmed')
+                        tracks(i).missed_pts = [tracks(i).missed_pts; tracks(i).x(1), tracks(i).x(3)];
+                    end
+                end
+            end
+        else
+            for i = 1:length(tracks)
+                tracks(i).misses = tracks(i).misses + 1;
+                tracks(i).history = [tracks(i).history; tracks(i).x(1), tracks(i).x(3)];
+                if strcmp(tracks(i).status, 'confirmed')
+                    tracks(i).missed_pts = [tracks(i).missed_pts; tracks(i).x(1), tracks(i).x(3)];
+                end
+            end
+        end
+    end
+    
+    % ================= 步骤 D：航迹起始 =================
+    unassigned_Z_indices = setdiff(1:size(Z,1), assigned_Z_indices);
+    for j = unassigned_Z_indices
+        z_meas = Z(j, 1:2)';
+        new_track.id = next_track_id;
+        next_track_id = next_track_id + 1;
+        new_track.x = [z_meas(1); 0; z_meas(2); 0]; 
+        new_track.P = diag([1, 10, 1, 10]);         
+        new_track.status = 'tentative';
+        new_track.hits = 1;
+        new_track.misses = 0;
+        new_track.history = [z_meas(1), z_meas(2)];
+        new_track.raw_meas = [z_meas(1), z_meas(2)]; 
+        new_track.missed_pts = [];
+        new_track.amp = Z(j, 3);
+        tracks = [tracks, new_track];
+    end
+    
+    % ================= 步骤 E：航迹删除与【尾部修剪】 =================
+    del_indices = [];
+    for i = 1:length(tracks)
+        if strcmp(tracks(i).status, 'confirmed') && tracks(i).misses >= 3
+            valid_hist_len = size(tracks(i).history, 1) - tracks(i).misses;
+            if valid_hist_len > 0
+                confirmed_paths{end+1} = tracks(i).history(1:valid_hist_len, :);
+            end
+            
+            valid_miss_len = size(tracks(i).missed_pts, 1) - tracks(i).misses;
+            if valid_miss_len > 0
+                accumulated_valid_misses = [accumulated_valid_misses; tracks(i).missed_pts(1:valid_miss_len, :)];
+            end
+            del_indices = [del_indices, i];
+        elseif strcmp(tracks(i).status, 'tentative') && tracks(i).misses >= 2
+            accumulated_false_alarms = [accumulated_false_alarms; tracks(i).raw_meas];
+            del_indices = [del_indices, i];
+        end
+    end
+    tracks(del_indices) = [];
+    
+    % ================= 步骤 F：动态绘制与综合统计 =================
+    subplot(1, 2, 2);
+    delete(findobj(h_ax2, 'Tag', 'dynamic_plot'));
+    
+    % ★ 统计存活航迹身上的：漏警数 + 真值点数
+    current_alive_misses = 0;
+    alive_track_points = 0;
+    for i=1:length(tracks)
+        if strcmp(tracks(i).status, 'confirmed')
+            current_alive_misses = current_alive_misses + size(tracks(i).missed_pts, 1);
+            alive_track_points = alive_track_points + size(tracks(i).history, 1);
+        end
+    end
+    
+    % ★ 统计已经死亡的确认航迹的：真值点数
+    dead_track_points = 0;
+    for p = 1:length(confirmed_paths)
+        dead_track_points = dead_track_points + size(confirmed_paths{p}, 1);
+    end
+    
+    % 汇总
+    total_misses = size(accumulated_valid_misses, 1) + current_alive_misses;
+    total_track_points = dead_track_points + alive_track_points;
+    
+    % 更新面板文本
+    stats_str = sprintf('当前帧数: %d / %d\n累积虚警点 (灰圆): %d 个\n累积漏警点 (黄叉): %d 个\n累积真实航迹点(红星): %d 个', ...
+                        k, num_frames, size(accumulated_false_alarms, 1), total_misses, total_track_points);
+    set(h_stats_text, 'String', stats_str);
+    
+    % 绘图区
+    for p = 1:length(confirmed_paths)
+        plot(confirmed_paths{p}(:,1), confirmed_paths{p}(:,2), '-*r', 'MarkerSize', 4, 'Tag', 'dynamic_plot');
+    end
+    
+    for i = 1:length(tracks)
+        if strcmp(tracks(i).status, 'confirmed')
+            plot(tracks(i).history(:,1), tracks(i).history(:,2), '-*r', 'MarkerSize', 4, 'Tag', 'dynamic_plot');
+            if ~isempty(tracks(i).missed_pts)
+                 plot(tracks(i).missed_pts(:,1), tracks(i).missed_pts(:,2), 'x', 'MarkerSize', 8, ...
+                    'MarkerEdgeColor', '#D95319', 'LineWidth', 2, 'Tag', 'dynamic_plot');
+            end
+        end
+    end
+    
+    if ~isempty(Z)
+        plot(Z(:,1), Z(:,2), 's', 'MarkerSize', 5, 'MarkerEdgeColor', [0 0.4470 0.7410], 'MarkerFaceColor', 'none', 'Tag', 'dynamic_plot');
+    end
+    
+    if ~isempty(accumulated_false_alarms)
+        plot(accumulated_false_alarms(:,1), accumulated_false_alarms(:,2), 'o', 'MarkerSize', 4, ...
+            'MarkerEdgeColor', [0.6 0.6 0.6], 'MarkerFaceColor', [0.6 0.6 0.6], 'Tag', 'dynamic_plot');
+    end
+    
+    if ~isempty(accumulated_valid_misses)
+        plot(accumulated_valid_misses(:,1), accumulated_valid_misses(:,2), 'x', 'MarkerSize', 8, ...
+            'MarkerEdgeColor', '#D95319', 'LineWidth', 2, 'Tag', 'dynamic_plot');
+    end
+    
+    drawnow;
+    pause(0.01); 
+end
+disp('带有四项全维度数据统计的全图无盲区目标跟踪已全部完成！');

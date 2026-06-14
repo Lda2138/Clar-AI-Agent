@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+window.onerror = function(message, source, lineno, colno, error) {
+    fetch('/api/log', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: message, source: source, lineno: lineno, colno: colno, error: error ? error.stack : null})
+    }).catch(e => {});
+};
+window.addEventListener('unhandledrejection', function(event) {
+    fetch('/api/log', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: 'Unhandled Promise Rejection: ' + event.reason, error: event.reason ? event.reason.stack : null})
+    }).catch(e => {});
+});
+</script>
+<title>随机信号分析 AI 助教 Clar v2.1.2</title>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js@2.32.0/dist/plotly.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<!-- 解耦出的核心 CSS -->
+    <link rel="stylesheet" href="css/style.css?v=6.0.1">
+</head>
+<body>
+
+<!-- Premium Geometric Tech Background -->
+<div class="geo-background">
+    <div class="geo-shape shape-hex-1"></div>
+    <div class="geo-shape shape-tri-1"></div>
+    <div class="geo-shape shape-hex-2"></div>
+    <div class="geo-shape shape-tri-2"></div>
+</div>
+
+<div id="main-row">
+
+
+    <div id="main-workspace">
+        <div class="content-area">
+            <div class="page active" id="page-signal-lab">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                    <h2>信号工坊</h2>
+                    <button class="btn-apply" id="btn-ai-analyze" style="display: none; background: linear-gradient(135deg, #C95C16, #b04f10); box-shadow: 0 4px 12px rgba(201, 92, 22,0.3);" onclick="analyzeCurrentSignal()">💡 让 Clar 分析当前信号</button>
+                </div>
+                <p class="subtitle">实时数学分析。修改底部的控制面板参数可实时重绘含噪信号特性。</p>
+                <div class="metrics-row" id="signal-metrics" style="display:none;"></div>
+                <div class="card chart-card" id="time-card" data-ai-tooltip="时域图表：展示时域波形 X(t)、自相关、互相关及概率密度 PDF">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <div class="card-title" id="time-card-title">时域分析</div>
+                        <div class="analysis-tabs" id="time-tabs">
+                            <button class="analysis-tab-btn active" data-value="waveform">时域波形 X(t)</button>
+                            <button class="analysis-tab-btn" data-value="autocorr">自相关 Rx(τ)</button>
+                            <button class="analysis-tab-btn" data-value="crosscorr">互相关 Rsx(τ)</button>
+                            <button class="analysis-tab-btn" data-value="pdf">概率密度 (PDF)</button>
+                        </div>
+                        <input type="hidden" id="time-analysis-type" value="waveform">
+                    </div>
+                    <div id="waveform-plot"></div>
+                </div>
+                <div class="card chart-card" id="freq-card" data-ai-tooltip="频域图表：展示信号幅度谱 |X(f)|、功率谱密度 PSD 与相位谱 θ(f)">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <div class="card-title" id="freq-card-title">频域分析</div>
+                        <div class="analysis-tabs" id="freq-tabs">
+                            <button class="analysis-tab-btn active" data-value="amplitude">幅度谱 |X(f)|</button>
+                            <button class="analysis-tab-btn" data-value="psd">功率谱密度 (PSD)</button>
+                            <button class="analysis-tab-btn" data-value="phase">相位谱 θ(f)</button>
+                        </div>
+                        <input type="hidden" id="freq-analysis-type" value="amplitude">
+                    </div>
+                    <div id="spectrum-plot"></div>
+                </div>
+            </div>
+
+            <div class="page" id="page-knowledge-map">
+                <h2>课程知识图谱</h2>
+                <p class="subtitle">点击拓扑叶子节点触发右侧上下文卡片及追问链路演进</p>
+                <div class="card chart-card"><div id="knowledge-graph"></div></div>
+            </div>
+
+            <div class="page" id="page-toolbox">
+                <h2>信号处理扩展工坊</h2>
+                <p class="subtitle">执行随机过程通过线性时不变系统(LTI)物理变换实验</p>
+                <div class="metrics-row">
+                    <div class="card" style="flex:1; display:flex; flex-direction:column; gap:10px;" data-ai-tooltip="滤波器系统：时域滑动平均滤波器">
+                        <div class="card-title">时域：滑动平均系统</div>
+                        <div class="ctrl-item">
+                            <label>窗口大小 N</label>
+                            <input type="number" id="filter-window-size" value="10" min="2" max="100">
+                        </div>
+                        <button class="btn-apply" style="width:100%" onclick="applyFilter('moving_average')">运行滑窗积分分析</button>
+                    </div>
+                    <div class="card" style="flex:1; display:flex; flex-direction:column; gap:10px;" data-ai-tooltip="低通系统：一阶模拟 RC 数字域低通滤波器">
+                        <div class="card-title">频域：RC一阶低通系统</div>
+                        <div class="ctrl-item">
+                            <label>截止频率 (Hz)</label>
+                            <input type="number" id="filter-cutoff" value="500" min="1">
+                        </div>
+                        <button class="btn-apply" style="width:100%" onclick="applyFilter('rc_lowpass')">运行冲激响应卷积</button>
+                    </div>
+                    <div class="card" style="flex:1; display:flex; flex-direction:column; gap:10px;" data-ai-tooltip="最佳估值系统：维纳滤波器最佳均方估计(MMSE)">
+                        <div class="card-title">频域：维纳最佳线性滤波</div>
+                        <div style="font-size:12px; color:#64748b; line-height:1.5; flex:1;">
+                            在最小均方误差(MMSE)准则下，利用已知期望信号与噪声的功率谱比率，实现自适应的最优估值滤波。
+                        </div>
+                        <button class="btn-apply" style="width:100%" onclick="applyFilter('wiener')">运行最佳均方估计</button>
+                    </div>
+                </div>
+                <div class="card chart-card" id="filter-result" style="display:none; flex-direction: column; height: 320px; min-height: 320px; margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <div class="card-title" id="filter-title" style="margin-bottom: 0;">线性系统输出特性</div>
+                        <button class="btn-apply" id="btn-filter-ai-analyze" style="padding: 4px 10px; font-size: 11px; border-radius: 8px; background: linear-gradient(135deg, #C95C16, #b04f10); box-shadow: 0 2px 8px rgba(201, 92, 22,0.2);" onclick="analyzeFilterResult()">💡 让 Clar 分析滤波结果</button>
+                    </div>
+                    <div id="filter-plot" style="flex: 1; min-height: 0;"></div>
+                </div>
+
+                <div style="height: 30px;"></div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                    <h3 style="font-size:16px; font-weight:600; color:#11111f;">卡尔曼滤波状态空间估计仿真</h3>
+                    <button class="btn-apply" id="btn-kalman-ai-analyze" style="display: none; padding: 4px 10px; font-size: 11px; border-radius: 8px; background: linear-gradient(135deg, #C95C16, #b04f10); box-shadow: 0 2px 8px rgba(201, 92, 22,0.2);" onclick="analyzeKalmanResult()">💡 让 Clar 分析卡尔曼仿真</button>
+                </div>
+                <p class="subtitle" style="margin-bottom:12px;">构建一个二维状态空间跟踪模型（位置与速度），通过递归卡尔曼滤波在含噪观测下实现状态估计与协方差收敛验证。</p>
+                <div class="metrics-row">
+                    <div class="card" style="flex:1; display:flex; flex-direction:column; gap:10px;" data-ai-tooltip="递归状态估计：卡尔曼状态估计仿真系统设置面板">
+                        <div class="card-title">滤波与仿真参数设置</div>
+                        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:6px;">
+                            <div class="ctrl-item" style="flex:1; min-width:120px;">
+                                <label>过程噪声 q</label>
+                                <input type="number" id="kalman-q" value="0.1" placeholder="推荐: 0.1" step="0.01" min="0">
+                            </div>
+                            <div class="ctrl-item" style="flex:1; min-width:120px;">
+                                <label>测量噪声标准差 σ_v</label>
+                                <input type="number" id="kalman-r" value="1.0" placeholder="推荐: 1.0" step="0.1" min="0.01">
+                            </div>
+                            <div class="ctrl-item" style="flex:1; min-width:120px;">
+                                <label>初速度 v₀</label>
+                                <input type="number" id="kalman-v0" value="1.0" placeholder="推荐: 1.0" step="0.1">
+                            </div>
+                        </div>
+                        <button class="btn-apply" style="width:100%" onclick="runKalmanSimulation()">运行卡尔曼递归仿真</button>
+                    </div>
+                </div>
+                <div id="kalman-result" style="display:none; flex-direction:column; gap:12px; margin-bottom: 20px;">
+                    <div class="card chart-card" style="height: 280px; min-height: 280px;">
+                        <div class="card-title">位置跟踪估计 (True vs Measured vs Estimated)</div>
+                        <div id="kalman-pos-plot" style="flex:1; min-height:0;"></div>
+                    </div>
+                    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                        <div class="card chart-card" style="flex:1; min-width:300px; height: 260px; min-height: 260px;">
+                            <div class="card-title">速度估计与真实值 (True vs Estimated Velocity)</div>
+                            <div id="kalman-vel-plot" style="flex:1; min-height:0;"></div>
+                        </div>
+                        <div class="card chart-card" style="flex:1; min-width:300px; height: 260px; min-height: 260px;">
+                            <div class="card-title">误差协方差 P₁₁ 与卡尔曼增益 K₁ 收敛曲线</div>
+                            <div id="kalman-cov-plot" style="flex:1; min-height:0;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="page" id="page-radar-tracking">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                    <h2>雷达目标跟踪与航迹管理</h2>
+                    <button class="btn-apply" id="btn-radar-ai-analyze" style="display: none; background: linear-gradient(135deg, #C95C16, #b04f10); box-shadow: 0 4px 12px rgba(201, 92, 22,0.3);" onclick="analyzeRadarTracking()">💡 让 Clar 分析跟踪结果</button>
+                </div>
+                <p class="subtitle">基于 Censored Mean Level Detector (CMLD) 恒虚警检测 (CFAR) 与卡尔曼滤波的状态估计与航迹管理系统。</p>
+
+                <!-- 参数设置面板 -->
+                <div class="metrics-row" style="margin-bottom: 15px;">
+                    <div class="card" style="flex: 2; min-width: 320px; display: flex; flex-direction: column; gap: 8px;" data-ai-tooltip="雷达系统：恒虚警检测(CFAR)及跟踪核心参数配置">
+                        <div class="card-title">CMLD CFAR 检测与卡尔曼跟踪参数设置</div>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 6px;">
+                            <div class="ctrl-item" style="flex: 1; min-width: 100px;">
+                                <label>虚警概率 Pf</label>
+                                <input type="number" id="radar-pf" value="0.0001" step="0.0001" min="1e-6" max="0.01">
+                            </div>
+                            <div class="ctrl-item" style="flex: 1; min-width: 100px;">
+                                <label>参考窗 R_ref</label>
+                                <input type="number" id="radar-r-ref" value="4" min="1" max="10">
+                            </div>
+                            <div class="ctrl-item" style="flex: 1; min-width: 100px;">
+                                <label>保护窗 R_pro</label>
+                                <input type="number" id="radar-r-pro" value="2" min="1" max="5">
+                            </div>
+                            <div class="ctrl-item" style="flex: 1; min-width: 100px;">
+                                <label>剔除数 D_high</label>
+                                <input type="number" id="radar-drop-high" value="10" min="0" max="30">
+                            </div>
+                            <div class="ctrl-item" style="flex: 1; min-width: 100px;">
+                                <label>偏置 Offset</label>
+                                <input type="number" id="radar-offset" value="30" min="0" max="100">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 6px;">
+                            <div class="ctrl-item" style="flex: 1; min-width: 120px;">
+                                <label>过程噪声 qs</label>
+                                <input type="number" id="radar-qs" value="0.01" step="0.005" min="0.001" max="0.5">
+                            </div>
+                            <div class="ctrl-item" style="flex: 1; min-width: 120px;">
+                                <label>波门大小 Gate</label>
+                                <input type="number" id="radar-gate" value="16" min="1" max="100">
+                            </div>
+                            <div class="ctrl-item" style="flex: 1; min-width: 120px;">
+                                <label>幅度限制 (dB)</label>
+                                <input type="number" id="radar-amp-limit" value="8" min="1" max="25">
+                            </div>
+                        </div>
+                        <button class="btn-apply" style="width: 100%; font-weight: bold; height: 36px;" onclick="runRadarSimulation()">运行雷达目标检测跟踪</button>
+                    </div>
+                </div>
+
+                <!-- 统计卡片面板 -->
+                <div class="metrics-row" id="radar-metrics-row" style="display: none; margin-bottom: 15px;">
+                    <div class="metric">
+                        <div class="val pop" id="radar-metric-frames">50</div>
+                        <div class="lbl">处理帧数</div>
+                    </div>
+                    <div class="metric" style="border-left: 2px solid rgba(0,0,0,0.03);">
+                        <div class="val pop" id="radar-metric-fa" style="color: #64748b;">0</div>
+                        <div class="lbl">累计虚警点 (灰圆)</div>
+                    </div>
+                    <div class="metric" style="border-left: 2px solid rgba(0,0,0,0.03);">
+                        <div class="val pop" id="radar-metric-miss" style="color: #e67e22;">0</div>
+                        <div class="lbl">累计漏警点 (黄叉)</div>
+                    </div>
+                    <div class="metric" style="border-left: 2px solid rgba(0,0,0,0.03);">
+                        <div class="val pop" id="radar-metric-pts" style="color: #e74c3c;">0</div>
+                        <div class="lbl">累计航迹点 (红星)</div>
+                    </div>
+                </div>
+
+                <!-- 绘图区 -->
+                <div id="radar-plots-container" style="display: none; flex-direction: column; gap: 15px; margin-bottom: 20px;">
+                    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                        <!-- Heatmap echo plot -->
+                        <div class="card chart-card" style="flex: 1; min-width: 320px; height: 350px;" data-ai-tooltip="点云图：雷达原始回波三维平面能量点云">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <div class="card-title" style="margin-bottom: 0;">图 1  雷达原始回波二维平面图</div>
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <label style="font-size: 11px; color: #64748b;">观测帧数:</label>
+                                    <input type="number" id="radar-echo-frame" value="1" min="1" max="50" style="width: 50px; padding: 2px 4px; font-size: 11px; border: 1px solid rgba(0,0,0,0.1); border-radius: 4px; outline: none;" onchange="updateRadarEchoPlot()">
+                                </div>
+                            </div>
+                            <div id="radar-echo-plot" style="flex: 1; min-height: 0;"></div>
+                        </div>
+
+                        <!-- Tracks tracking plot -->
+                        <div class="card chart-card" style="flex: 1; min-width: 320px; height: 350px;" data-ai-tooltip="跟踪航迹图：多目标卡尔曼跟踪滤波输出估计航迹">
+                            <div class="card-title">图 2  多目标估计航迹与虚漏警统计</div>
+                            <div id="radar-tracks-plot" style="flex: 1; min-height: 0;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Step-by-Step Recursion panel -->
+                    <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px;">
+                        <div class="card-title" style="border-bottom: 1px solid rgba(0,0,0,0.05); padding-bottom: 8px; margin-bottom: 4px;">
+                            ⚡ 雷达目标卡尔曼滤波数学递推与状态演算 (第 1 - 5 步)
+                        </div>
+                        <div id="radar-math-details" style="font-size: 12.5px; line-height: 1.6; color: #334155; overflow-x: auto;">
+                            请运行雷达仿真以查看卡尔曼递推计算步骤...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="knowledge-slot">
+        <div class="ai-header" style="padding: 0 0 10px 0; background:transparent;">衍生知识演进面板</div>
+        <div id="cards-wrapper">
+            <p style="color:#8890a8; font-size:13px; text-align:center; margin-top:30px; padding:0 10px;">未激活任何知识节点。通过右侧对话框提问或生成信号激活滑动上下文。</p>
+        </div>
+    </div>
+
+    <!-- ✨ 核心修复：极致悬浮效果面板 -->
+    <div id="ai-panel">
+        <div class="ai-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span><span style="color: #C95C16">C</span>lar <small style="font-size: 10px; font-weight: normal; opacity: 0.6; background: rgba(53, 96, 153, 0.15); color: #356099; padding: 1px 5px; border-radius: 4px; vertical-align: middle; margin-left: 4px;">v2.1.2</small></span>
+            </div>
+        </div>
+        <div class="chat-container" id="chat-messages">
+            <div class="chat-msg assistant">
+                <div class="bubble">您好！我是《随机信号分析》AI 助教 Clar，先生成信号或直接向我提问即可开始。</div>
+            </div>
+        </div>
+        <div class="chat-input-wrap">
+            <div style="position: relative;">
+                <textarea id="chatFloatInput" placeholder="请输入提问或公式推导... (Enter发送, Shift+Enter换行)" autocomplete="off"></textarea>
+                <button class="send-btn" onclick="sendChat()" style="top: auto; bottom: 12px; right: 12px; transform: none;">↑</button>
+            </div>
+            <div style="text-align: center; font-size: 10.5px; color: #94a3b8; margin-top: 8px; user-select: none; letter-spacing: 0.3px;">
+                Clar 是一款 AI 工具，其回答未必正确无误。
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- ✨ 核心修复：底栏集成无按钮纯净输入法 -->
+<footer id="bottom-bar">
+    <div class="nav-tabs" id="main-nav-tabs">
+        <div class="nav-indicator" id="nav-indicator"></div>
+        <button class="tab-item active" data-page="signal-lab" data-ai-tooltip="导航选项卡 - 信号工坊：进行随机信号的时域与频域数学分析">信号工坊</button>
+        <button class="tab-item" data-page="knowledge-map" data-ai-tooltip="导航选项卡 - 知识图谱：查看课程知识架构树与知识点关联">知识图谱</button>
+        <button class="tab-item" data-page="toolbox" data-ai-tooltip="导航选项卡 - 工具箱：进行滑动平均、一阶低通和卡尔曼状态估计实验">工具箱</button>
+        <button class="tab-item" data-page="radar-tracking" data-ai-tooltip="导航选项卡 - 雷达追踪：进行基于CFAR检测与卡尔曼多目标雷达航迹管理实验">雷达追踪</button>
+    </div>
+    <div class="signal-controls">
+        <div class="ctrl-item custom-select-wrapper" id="sig-type-wrapper" data-ai-tooltip="信号源：选择拟真信号类型（包含正弦、窄带、扫频LFM、白噪声等）">
+            <label>型号</label>
+            <div class="custom-select-trigger" id="sig-type-trigger">
+                <span class="custom-select-text">正弦+白噪声</span>
+                <span class="custom-select-arrow">▼</span>
+            </div>
+            <div class="custom-select-options" id="sig-type-options">
+                <div class="custom-option active" data-value="正弦+白噪声">正弦+白噪声</div>
+                <div class="custom-option" data-value="窄带">窄带</div>
+                <div class="custom-option" data-value="瑞利分布">瑞利分布</div>
+                        <div class="custom-option" data-value="方波+白噪声">方波+白噪声</div>
+                <div class="custom-option" data-value="线性调频(LFM)">线性调频(LFM)</div>
+                <div class="custom-option" data-value="高斯白噪声">高斯白噪声</div>
+                <div class="custom-option" data-value="一阶马尔可夫过程">一阶马尔可夫过程</div>
+                <div class="custom-option" data-value="三角波+白噪声">三角波+白噪声</div>
+                <div class="custom-option" data-value="双频正弦+白噪声">双频正弦+白噪声</div>
+            </div>
+            <select id="sig-type" onchange="autoGenerate()" style="display:none;">
+                <option>正弦+白噪声</option>
+                <option>窄带</option>
+                <option>瑞利分布</option>
+                <option>方波+白噪声</option>
+                <option>线性调频(LFM)</option>
+                <option>高斯白噪声</option>
+                <option>一阶马尔可夫过程</option>
+                <option>三角波+白噪声</option>
+                <option>双频正弦+白噪声</option>
+            </select>
+        </div>
+        <div class="ctrl-item" data-ai-tooltip="信号质量：配置输入观测序列的信噪比分贝(SNR dB)">
+            <label>信噪比</label>
+            <input type="number" id="sig-snr" value="10" placeholder="如 10dB" oninput="autoGenerate()">
+        </div>
+        <div class="ctrl-item" data-ai-tooltip="中心频率：正弦波/窄带/扫频起始频率 f0 (Hz)">
+            <label>频率</label>
+            <input type="number" id="sig-freq" value="200" placeholder="1~5000Hz" oninput="syncSampleRate()">
+        </div>
+        <div class="ctrl-item" data-ai-tooltip="时域采样：配置数字系统的采样率 fs (Hz)">
+            <label>采样率</label>
+            <input type="number" id="sig-fs" value="10000" placeholder="1000~50000Hz" oninput="validateSampleRate()">
+        </div>
+        <div class="ctrl-item" id="ctrl-bandwidth" style="display:none;">
+            <label>带宽</label>
+            <input type="number" id="sig-bandwidth" value="50" placeholder="带宽 (Hz)" oninput="autoGenerate()">
+        </div>
+        <div class="ctrl-item" id="ctrl-freq-end" style="display:none;">
+            <label>终止频率</label>
+            <input type="number" id="sig-freq-end" value="300" placeholder="扫频上限 (Hz)" oninput="autoGenerate()">
+        </div>
+        <div class="ctrl-item" id="ctrl-markov-a" style="display:none;">
+            <label>回归系数 a</label>
+            <input type="number" id="sig-markov-a" value="0.9" step="0.05" min="0.0" max="0.99" oninput="autoGenerate()">
+        </div>
+        <div class="ctrl-item" id="ctrl-freq2" style="display:none;">
+            <label>第二频率</label>
+            <input type="number" id="sig-freq2" value="300" placeholder="f2 (Hz)" oninput="autoGenerate()">
+        </div>
+        <button class="btn-apply" onclick="generateSignal()">生成与重绘</button>
+        <button class="btn-apply" style="background: linear-gradient(135deg, #C95C16, #b04f10); box-shadow: 0 2px 8px rgba(201, 92, 22,0.3);" onclick="generateEnsembleData()">🎲 蒙特卡洛系综</button>
+    </div>
+</footer>
+
+<!-- Premium AI Mode Sprite Switch (v2.0.5) -->
+<div id="ai-mode-sprite-toggle" class="ai-mode-sprite-toggle state-classic" title="双击切换 AI 模式 (Classic / Clar-ball)">
+    <div class="sprite-core"></div>
+</div>
+
+<!-- Mouse Background Spotlight Effect -->
+<div id="mouse-spotlight" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: -2; background: radial-gradient(circle 450px at var(--mouse-x, 50vw) var(--mouse-y, 50vh), rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0.1) 40%, transparent 80%); mix-blend-mode: color-dodge; opacity: 0; transition: opacity 0.5s ease;"></div>
+
+<script>
+    let spotlightTimeout;
+    const staticPanels = [document.getElementById('main-workspace'), document.getElementById('knowledge-slot'), document.getElementById('ai-panel'), document.getElementById('bottom-bar')];
+    
+    document.addEventListener('mousemove', (e) => {
+        // Global ambient spotlight
+        const spotlight = document.getElementById('mouse-spotlight');
+        if (spotlight) {
+            spotlight.style.setProperty('--mouse-x', e.clientX + 'px');
+            spotlight.style.setProperty('--mouse-y', e.clientY + 'px');
+            spotlight.style.opacity = '1';
+            
+            clearTimeout(spotlightTimeout);
+            spotlightTimeout = setTimeout(() => {
+                spotlight.style.opacity = '0';
+            }, 1500);
+        }
+
+        // Surface highlight reflection for physical glass
+        const dynamicCards = document.getElementsByClassName('card');
+        const dynamicKCCards = document.getElementsByClassName('kc-card');
+        const allPanels = [...staticPanels, ...dynamicCards, ...dynamicKCCards];
+        
+        for (let i = 0; i < allPanels.length; i++) {
+            const panel = allPanels[i];
+            if (!panel) continue;
+            const rect = panel.getBoundingClientRect();
+            panel.style.setProperty('--mouse-local-x', (e.clientX - rect.left) + 'px');
+            panel.style.setProperty('--mouse-local-y', (e.clientY - rect.top) + 'px');
+        }
+    });
+</script>
+
+<script src="js/state.js?v=6.0.1"></script>
+<script src="js/charts.js?v=6.0.1"></script>
+<script src="js/ui.js?v=6.0.1"></script>
+<script src="js/chat.js?v=6.0.1"></script>
+<script src="js/radar.js?v=6.0.1"></script>
+<script src="js/proactive_card.js?v=6.0.1"></script>
+<script src="js/telemetry.js?v=6.0.1"></script>
+<script src="app.js?v=6.0.1"></script>
+</body>
+</html>
