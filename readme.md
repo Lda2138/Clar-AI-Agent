@@ -4,6 +4,22 @@
 
 本项目旨在开发一个具备交互式分析能力和多维知识映射的"随机信号处理智能体"。项目严格对标《随机信号分析》课程考核要求，完整实现"信号采集/生成 -> 预处理与特征分析 -> 智能匹配与滤波"的感知-决策-控制链路。在此基础上，通过大语言模型（LLM）和可视化前端，提供直观的知识图谱交互与公式推导演示。
 
+## 📸 系统预览 (Screenshots)
+
+> **💡 截图占位符**：请在此处替换为系统的实际运行截图，以展示强大的全栈功能与极具未来感的玻璃拟态 UI。
+> *(建议将截图文件放入 `docs/assets/` 或项目根目录下的 `assets/` 文件夹中)*
+
+![系统主界面与波形渲染占位图](assets/placeholder_main_ui.png)
+*图 1：系统主界面，展示多维信号波形、频谱渲染及右侧的主动式 AI 助教交互面板。*
+
+![知识图谱与动态联动占位图](assets/placeholder_knowledge_graph.png)
+*图 2：全景式力导向知识图谱，随底层物理参数的调整实时产生视觉拓扑联动。*
+
+![滤波算法与状态估计占位图](assets/placeholder_filter_kalman.png)
+*图 3：维纳滤波去噪与卡尔曼滤波状态估计（预测-更新迭代）动态仿真效果。*
+
+
+
 ## 2. 技术栈架构
 
 | 层级 | 技术 | 说明 |
@@ -19,41 +35,50 @@
 | 信号计算 | NumPy + SciPy | 时域/频域分析、滤波算法 |
 | 环境配置 | python-dotenv | .env 文件管理 API Key |
 
-## 3. 项目目录结构
+## 3. 核心目录与文件说明 (Directory Structure)
 
-```
-agent-by-DZLiu/
-├── main.py                         # 🏁 启动入口：uvicorn 启动 FastAPI 服务 (端口 8001)
-├── .env                            # 🔑 环境变量：DEEPSEEK_API_KEY
-├── requirements.txt                # 📦 Python 依赖清单
-├── readme.md                       # 📖 项目文档（本文件）
-├── design_document.md              # 📐 系统设计方案文档
-├── ai_assistant_capabilities.md    # 🤖 AI 助教功能与能力详细指南
-├── user_guide.md                   # 📘 用户使用手册（界面操作与实验指南）
-├── docs/                           # 📂 规范与日志文档目录
-│   ├── architecture.md             # 📐 前端系统架构设计与接口规范
-│   └── changelog.md                # 📖 项目开发日志与版本记录
+为了让其他开发者和评审老师能快速看懂代码库，以下是对整个开源项目结构的详细说明：
+
+```text
+Clar-AI-Agent/
+├── 🏁 核心入口点
+│   ├── main.py                         # 服务端启动入口（使用 uvicorn 挂载 FastAPI）
+│   ├── requirements.txt                # 📦 Python 运行依赖库清单
+│   ├── .env.example                    # 🔑 环境变量模板（为了保护隐私，请依据此文件在本地新建 .env）
+│   └── .gitignore                      # 🛡️ Git 忽略配置（确保 API Key 和缓存不被上传）
 │
-├── core/                           # 🧠 核心业务逻辑
-│   ├── __init__.py
-│   ├── agent_brain.py              # AI 智能体：DeepSeek 对话、流式输出、工具调用、结构化 JSON 输出
-│   └── signal_engine.py            # 信号引擎：9 种信号生成、6 维特征提取、4 种滤波/估计算法
+├── 📖 官方技术文档 (Documentation)
+│   ├── README.md                       # 🏠 项目主页自述文件（本文件）
+│   ├── user_guide.md                   # 📘 详细的用户操作与实验手册
+│   ├── design_document.md              # 📐 底层系统架构设计方案说明书
+│   ├── ai_assistant_capabilities.md    # 🤖 主动式 AI 助教核心能力深度剖析
+│   ├── docs/                           # 📂 附加的架构拓扑图与更新日志存放区
+│   └── 案例1_实数的最小二乘法讨论报告_刘德政_v2.docx # 📝 基于系统分析自动生成的 Word 学术报告示例
 │
-├── data/                           # 🗂️ 知识库
-│   ├── __init__.py
-│   └── signal_knowledge_base.py    # 六位一体知识库：课程大纲、知识点、公式、题型、错因、术语
+├── 🧠 核心业务层 (Core Engine)
+│   ├── core/                           
+│   │   ├── agent_brain.py              # AI 大脑中枢：负责 DeepSeek 意图识别、函数调用与流式通讯
+│   │   └── signal_engine.py            # 信号引擎核心：底层数学运算、特征提取与滤波器矩阵解算
+│   └── data/                           
+│       └── signal_knowledge_base.py    # 📚 六位一体的本地化静态图谱知识库
 │
-├── backend/                        # 🌐 API 服务层
-│   └── server.py                   # FastAPI 路由：信号生成、滤波、卡尔曼仿真、知识图谱、AI 对话（SSE 流式）
+├── 🌐 网络路由层 (API Backend)
+│   └── backend/                        
+│       └── server.py                   # FastAPI RESTful 接口与 SSE 流式路由定义
 │
-└── frontend/                       # 🎨 前端展示与交互层
-    ├── index.html                  # 主页面：玻璃拟态 UI、三页布局 + AI 侧边栏 + 知识图谱面板
-    └── js/                         # 🧩 前端模块化引擎
-        ├── state.js                # 全局状态管理机 (State Machine)
-        ├── ui.js                   # DOM 操作与动效控制 (玻璃拟态渲染、平滑轨迹避让)
-        ├── charts.js               # 图表与渲染引擎 (Plotly 波形渲染、ECharts 拓扑力导向图)
-        ├── chat.js                 # AI 通信模块 (SSE 流式 JSON 接收与解析器)
-        └── telemetry.js            # 遥测追踪模块 (前端上下文环境动态捕获引擎)
+├── 🎨 前端展现层 (Frontend & UI)
+│   └── frontend/                       
+│       ├── index.html                  # 玻璃拟态风格的主页面入口
+│       └── js/                         # 模块化前端架构
+│           ├── state.js                # 全局状态管理机 (State Machine)
+│           ├── ui.js                   # DOM 交互与动效控制引擎
+│           ├── charts.js               # ECharts 图谱与 Plotly 波形双引擎渲染模块
+│           ├── chat.js                 # SSE 流式问答渲染器与卡片调度器
+│           └── telemetry.js            # 🕵️ 前端隐式遥测模块（收集用户操作上下文）
+│
+└── 🛠️ 开发与环境配置 (Config)
+    ├── .claude                         # AI 编程助手上下文配置文件（可忽略）
+    └── .vscode                         # VSCode 编辑器推荐的工作区配置（可忽略）
 ```
 
 ## 4. 核心工作流 (Workflow)
