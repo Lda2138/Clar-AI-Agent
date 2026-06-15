@@ -52,8 +52,7 @@ Clar-AI-Agent/
 │   ├── user_guide.md                   # 📘 详细的用户操作与实验手册
 │   ├── design_document.md              # 📐 底层系统架构设计方案说明书
 │   ├── ai_assistant_capabilities.md    # 🤖 主动式 AI 助教核心能力深度剖析
-│   ├── docs/                           # 📂 附加的架构拓扑图与更新日志存放区
-│   └── 案例1_实数的最小二乘法讨论报告_刘德政_v2.docx # 📝 基于系统分析自动生成的 Word 学术报告示例
+│   └── docs/                           # 📂 附加的架构拓扑图与更新日志存放区
 │
 ├── 🧠 核心业务层 (Core Engine)
 │   ├── core/                           
@@ -134,7 +133,7 @@ python main.py
 
 | 文档 | 内容 |
 |------|------|
-| `readme.md` | 项目概述、目录结构、快速启动（本文件） |
+| `README.md` | 项目概述、目录结构、快速启动（本文件） |
 | `user_guide.md` | **用户使用手册**：界面操作指南、功能详解、AI 指令示例、FAQ |
 | `design_document.md` | 系统设计方案：架构分层、模块设计、数据流、算法、API 契约、工程创新 |
 | `ai_assistant_capabilities.md` | AI 助教功能详细描述：信号生成、工具箱控制、知识图谱、情境感知对话、设计巧思 |
