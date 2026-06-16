@@ -6,16 +6,13 @@
 
 ## 📸 系统预览 (Screenshots)
 
-> **💡 截图占位符**：请在此处替换为系统的实际运行截图，以展示强大的全栈功能与极具未来感的玻璃拟态 UI。
-> *(建议将截图文件放入 `docs/assets/` 或项目根目录下的 `assets/` 文件夹中)*
-
-![系统主界面与波形渲染占位图](assets/placeholder_main_ui.png)
+![系统主界面与波形渲染](assets/placeholder_main_ui.png)
 *图 1：系统主界面，展示多维信号波形、频谱渲染及右侧的主动式 AI 助教交互面板。*
 
-![知识图谱与动态联动占位图](assets/placeholder_knowledge_graph.png)
+![知识图谱与动态联动](assets/placeholder_knowledge_graph.png)
 *图 2：全景式力导向知识图谱，随底层物理参数的调整实时产生视觉拓扑联动。*
 
-![滤波算法与状态估计占位图](assets/placeholder_filter_kalman.png)
+![滤波算法与状态估计](assets/placeholder_filter_kalman.png)
 *图 3：维纳滤波去噪与卡尔曼滤波状态估计（预测-更新迭代）动态仿真效果。*
 
 
@@ -58,8 +55,10 @@ Clar-AI-Agent/
 │   ├── core/                           
 │   │   ├── agent_brain.py              # AI 大脑中枢：负责 DeepSeek 意图识别、函数调用与流式通讯
 │   │   └── signal_engine.py            # 信号引擎核心：底层数学运算、特征提取与滤波器矩阵解算
-│   └── data/                           
-│       └── signal_knowledge_base.py    # 📚 六位一体的本地化静态图谱知识库
+│   ├── data/                           
+│   │   └── signal_knowledge_base.py    # 📚 六位一体的本地化静态图谱知识库
+│   └── kalman_data/
+│       └── Raw_data.mat                # 📡 雷达卡尔曼追踪仿真的原生测试数据
 │
 ├── 🌐 网络路由层 (API Backend)
 │   └── backend/                        
